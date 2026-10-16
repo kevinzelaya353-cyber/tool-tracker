@@ -1,0 +1,55 @@
+{
+  // Ejecutar con Ctrl+Shift+B (Iniciar todo) o Terminal → Run Task…
+  // PostgreSQL corre como servicio de Windows (arranca solo con el equipo); no hace falta Docker.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "API",
+      "detail": "Arranca la API en http://localhost:3000 (recarga al guardar).",
+      "type": "shell",
+      "command": "pnpm.cmd dev:api",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated" }
+    },
+    {
+      "label": "App móvil (Expo)",
+      "detail": "Muestra el QR para abrir la app con Expo Go.",
+      "type": "shell",
+      "command": "pnpm.cmd dev:mobile",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated" }
+    },
+    {
+      "label": "▶ Iniciar todo",
+      "detail": "API + app móvil, en terminales lado a lado.",
+      "dependsOn": ["API", "App móvil (Expo)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Preparar base de datos",
+      "detail": "Crea tablas, reglas y datos iniciales (solo la primera vez o tras cambiar schema.prisma).",
+      "type": "shell",
+      "command": "pnpm.cmd db:setup",
+      "problemMatcher": []
+    },
+    {
+      "label": "Pruebas unitarias",
+      "type": "shell",
+      "command": "pnpm.cmd test",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Pruebas de integración",
+      "detail": "Contra la base tool_tracker_test del PostgreSQL local (la reinicia en cada corrida).",
+      "type": "shell",
+      "command": "pnpm.cmd test:int",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

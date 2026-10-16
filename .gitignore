@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.expo/
+# Caché de graphify (el grafo en graphify-out/ sí se puede versionar)
+graphify-out/cache/
+# Fotos guardadas en disco (STORAGE_DRIVER=local)
+apps/api/storage/
+*.log
+.DS_Store

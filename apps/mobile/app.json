@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Control de Herramientas",
+    "slug": "tool-tracker",
+    "scheme": "tooltracker",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tooltracker.app"
+    },
+    "android": {
+      "package": "com.tooltracker.app",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La cámara se usa para fotografiar el estado de las herramientas y escanear sus códigos QR.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Se accede a tus fotos para adjuntar evidencia del estado de las herramientas."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
