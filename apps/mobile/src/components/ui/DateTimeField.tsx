@@ -30,6 +30,46 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
     if (Platform.OS === "android") setStep(null);
   };
 
+  // El selector nativo no tiene implementación web: ahí se usa el de navegador.
+  if (Platform.OS === "web") {
+    const type = mode === "date" ? "date" : "datetime-local";
+    const onInput = (e: { target: { value: string } }) => {
+      const d = fromInputValue(e.target.value);
+      if (d) onChange(d > new Date() ? new Date() : d);
+    };
+    return (
+      <View style={styles.wrap}>
+        <Text style={font.label}>{label}</Text>
+        <View style={styles.row}>
+          <View style={[styles.field, error ? styles.fieldError : null]}>
+            <Ionicons name="calendar-outline" size={18} color={colors.textMuted} />
+            <input
+              type={type}
+              value={toInputValue(value, mode)}
+              max={toInputValue(new Date(), mode)}
+              onChange={onInput}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                color: colors.text,
+                fontSize: 15,
+                fontFamily: "inherit",
+                colorScheme: scheme,
+              }}
+            />
+          </View>
+          <Pressable style={styles.now} onPress={() => onChange(new Date())}>
+            <Text style={styles.nowText}>Ahora</Text>
+          </Pressable>
+        </View>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
       <Text style={font.label}>{label}</Text>
@@ -60,6 +100,21 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
       ) : null}
     </View>
   );
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** Valor de <input type="date|datetime-local"> en hora local. */
+function toInputValue(d: Date, mode: "date" | "datetime") {
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return mode === "date" ? date : `${date}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Se arma con componentes: new Date("YYYY-MM-DD") se interpretaría en UTC y correría un día. */
+function fromInputValue(v: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v);
+  if (!m) return null;
+  return new Date(+m[1]!, +m[2]! - 1, +m[3]!, +(m[4] ?? 0), +(m[5] ?? 0));
 }
 
 const useStyles = makeStyles(({ colors }) =>

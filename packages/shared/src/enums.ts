@@ -25,6 +25,9 @@ export const LOSS_STATUSES: readonly ToolStatus[] = ["DANADA", "EXTRAVIADA", "DA
 export const LOCATION_TYPE = ["BODEGA", "PROYECTO"] as const;
 export type LocationType = (typeof LOCATION_TYPE)[number];
 
+export const PHOTO_STAGE = ["ENTREGA", "RECEPCION"] as const;
+export type PhotoStage = (typeof PHOTO_STAGE)[number];
+
 export const ROLE = ["ADMIN", "BODEGUERO", "SUPERVISOR", "LECTOR"] as const;
 export type Role = (typeof ROLE)[number];
 

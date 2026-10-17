@@ -19,8 +19,9 @@ export interface SessionUser {
   permissions: readonly string[];
 }
 
-export function toSessionUser(u: { id: string; name: string; email: string; role: Role }): SessionUser {
-  return { id: u.id, name: u.name, email: u.email, role: u.role, permissions: ROLE_PERMISSIONS[u.role] };
+export function toSessionUser(u: { id: string; name: string; email: string | null; role: Role }): SessionUser {
+  // Solo quien tiene correo puede iniciar sesión, así que aquí nunca llega null.
+  return { id: u.id, name: u.name, email: u.email ?? "", role: u.role, permissions: ROLE_PERMISSIONS[u.role] };
 }
 
 export class AuthService {
@@ -53,7 +54,7 @@ export class AuthService {
     }
 
     // needsRehash compara contra los parámetros de coste por defecto (el tipo va en el propio hash).
-    if (argon2.needsRehash(user.passwordHash)) {
+    if (argon2.needsRehash(hash)) {
       await this.prisma.user.update({
         where: { id: user.id },
         data: { passwordHash: await hashPassword(input.password) },

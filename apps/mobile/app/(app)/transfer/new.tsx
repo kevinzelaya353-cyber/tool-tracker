@@ -16,8 +16,16 @@ import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { PhotoPicker } from "@/features/camera/PhotoPicker";
 import { QrScanner } from "@/features/camera/QrScanner";
-import { useCreateLocation, useCreateVehicle, useLocations, useUsers, useVehicles } from "@/features/catalog/api";
+import {
+  useCreateLocation,
+  useCreatePerson,
+  useCreateVehicle,
+  useLocations,
+  useUsers,
+  useVehicles,
+} from "@/features/catalog/api";
 import { useToolsAtLocation } from "@/features/tools/api";
+import { RouteMap } from "@/features/maps/RouteMap";
 import { useCreateTransfer } from "@/features/transfers/api";
 import { formatDateTime } from "@/lib/format";
 import { radius, space, makeStyles, useTheme } from "@/theme";
@@ -36,6 +44,7 @@ export default function NewTransferScreen() {
   const create = useCreateTransfer();
   const createLocation = useCreateLocation();
   const createVehicle = useCreateVehicle();
+  const createPerson = useCreatePerson();
 
   const [step, setStep] = useState(0);
   const [fromId, setFromId] = useState(params.fromLocationId);
@@ -49,10 +58,17 @@ export default function NewTransferScreen() {
   const [movedAt, setMovedAt] = useState(new Date());
   const [notes, setNotes] = useState("");
   const [photoIds, setPhotoIds] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const onPhotos = useCallback((ids: string[], busy: boolean) => {
+  const [receptionPhotoIds, setReceptionPhotoIds] = useState<string[]>([]);
+  const [uploadingDelivery, setUploadingDelivery] = useState(false);
+  const [uploadingReception, setUploadingReception] = useState(false);
+  const uploading = uploadingDelivery || uploadingReception;
+  const onDeliveryPhotos = useCallback((ids: string[], busy: boolean) => {
     setPhotoIds(ids);
-    setUploading(busy);
+    setUploadingDelivery(busy);
+  }, []);
+  const onReceptionPhotos = useCallback((ids: string[], busy: boolean) => {
+    setReceptionPhotoIds(ids);
+    setUploadingReception(busy);
   }, []);
 
   const from = locations.data?.find((l) => l.id === fromId);
@@ -110,6 +126,7 @@ export default function NewTransferScreen() {
         notes: notes.trim() || undefined,
         items: selectedTools.map((t) => ({ toolId: t.id })),
         photoIds,
+        receptionPhotoIds,
       },
       { onSuccess: (t) => router.replace(`/transfer/${t.id}`) },
     );
@@ -137,7 +154,10 @@ export default function NewTransferScreen() {
         onCreate: async (plate, description) => (await createVehicle.mutateAsync({ plate, description })).id,
       }
     : undefined;
-  const cancel = () => (router.canGoBack() ? router.back() : router.replace("/transfers"));
+  const newPerson: CreateOption | undefined = canCatalog
+    ? { noun: "persona", onCreate: async (name) => (await createPerson.mutateAsync(name)).id }
+    : undefined;
+  const cancel =() => (router.canGoBack() ? router.back() : router.replace("/transfers"));
 
   const userOptions = (users.data ?? []).map((u) => ({ value: u.id, label: u.name }));
   const personName = (id?: string) => users.data?.find((u) => u.id === id)?.name ?? "—";
@@ -231,12 +251,22 @@ export default function NewTransferScreen() {
 
       {step === 2 ? (
         <>
-          <SelectField label="Entregado por" value={deliveredById} onChange={setDeliveredById} options={userOptions} />
+          <SelectField
+            label="Entregado por"
+            value={deliveredById}
+            onChange={(v) => {
+              setDeliveredById(v);
+              if (v === receivedById) setReceivedById(undefined);
+            }}
+            options={userOptions}
+            create={newPerson}
+          />
           <SelectField
             label="Recibido por"
             value={receivedById}
             onChange={setReceivedById}
             options={userOptions.filter((o) => o.value !== deliveredById)}
+            create={newPerson}
           />
           <SelectField
             label="Vehículo"
@@ -270,7 +300,17 @@ export default function NewTransferScreen() {
             {vehicleId !== NO_VEHICLE ? ` · ${vehicles.data?.find((v) => v.id === vehicleId)?.plate ?? ""}` : ""}
           </Text>
         </Card>
-        <PhotoPicker label="Fotos del estado de las herramientas" onChange={onPhotos} />
+        {from && to ? <RouteMap from={from} to={to} height={200} /> : null}
+        <PhotoPicker
+          label="Fotos al entregar"
+          hint="Estado de las herramientas al salir del origen."
+          onChange={onDeliveryPhotos}
+        />
+        <PhotoPicker
+          label="Fotos al recibir (opcional)"
+          hint="Si quien recibe aún no las tiene, puede agregarlas después desde el detalle del traslado."
+          onChange={onReceptionPhotos}
+        />
       </View>
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>

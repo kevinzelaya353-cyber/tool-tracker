@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Button } from "@/components/ui/Button";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 import { discardPhoto, uploadPhotos, type LocalImage } from "../media/api";
+import { compressImage } from "./compress";
 import { MultiPhotoCapture } from "./MultiPhotoCapture";
 
 const MAX_PHOTOS = 20; // límite de photoIds por traslado/evento en la API
@@ -13,20 +15,25 @@ type Item = LocalImage & { key: string; status: "uploading" | "done" | "error"; 
 
 interface Props {
   label?: string;
+  hint?: string;
+  /** Máximo de fotos (1 = foto única, p. ej. la de la herramienta). */
+  max?: number;
   /** Recibe los ids de fotos ya subidas y si queda alguna subiendo. */
   onChange(ids: string[], uploading: boolean): void;
 }
 
 /**
- * Campo de evidencia fotográfica: toma varias fotos, las sube en segundo plano
- * por tandas y entrega los ids para incluirlos en el traslado o evento.
+ * Campo de fotos: se toman con la cámara o se eligen de la galería, se suben en
+ * segundo plano por tandas y se entregan los ids para asociarlos al traslado, evento o herramienta.
  */
-export function PhotoPicker({ label = "Evidencia fotográfica", onChange }: Props) {
+export function PhotoPicker({ label = "Evidencia fotográfica", hint, max = MAX_PHOTOS, onChange }: Props) {
   const styles = useStyles();
   const { font } = useTheme();
   const [items, setItems] = useState<Item[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   const counter = useRef(0);
+  const left = max - items.length;
 
   useEffect(() => {
     onChange(
@@ -57,6 +64,23 @@ export function PhotoPicker({ label = "Evidencia fotográfica", onChange }: Prop
     for (let i = 0; i < fresh.length; i += BATCH) void upload(fresh.slice(i, i + BATCH));
   };
 
+  /** Directo a la carpeta de imágenes, sin pasar por la cámara. */
+  const pickFromGallery = async () => {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: left > 1,
+      selectionLimit: left,
+      quality: 1,
+    });
+    if (res.canceled) return;
+    setPicking(true);
+    try {
+      add(await Promise.all(res.assets.slice(0, left).map((a) => compressImage(a))));
+    } finally {
+      setPicking(false);
+    }
+  };
+
   const retry = (item: Item) => {
     setItems((all) => all.map((it) => (it.key === item.key ? { ...it, status: "uploading" } : it)));
     void upload([item]);
@@ -71,10 +95,13 @@ export function PhotoPicker({ label = "Evidencia fotográfica", onChange }: Prop
     <View style={styles.wrap}>
       <View style={styles.header}>
         <Text style={font.label}>{label}</Text>
-        <Text style={font.small}>
-          {items.length}/{MAX_PHOTOS}
-        </Text>
+        {max > 1 ? (
+          <Text style={font.small}>
+            {items.length}/{max}
+          </Text>
+        ) : null}
       </View>
+      {hint ? <Text style={font.small}>{hint}</Text> : null}
 
       {items.length > 0 ? (
         <View style={styles.grid}>
@@ -99,20 +126,18 @@ export function PhotoPicker({ label = "Evidencia fotográfica", onChange }: Prop
         </View>
       ) : null}
 
-      <Button
-        title={items.length ? "Agregar más fotos" : "Tomar fotos"}
-        icon="camera-outline"
-        variant="secondary"
-        disabled={items.length >= MAX_PHOTOS}
-        onPress={() => setCameraOpen(true)}
-      />
+      {left > 0 ? (
+        <View style={styles.buttons}>
+          <View style={styles.flex}>
+            <Button title="Cámara" icon="camera-outline" variant="secondary" onPress={() => setCameraOpen(true)} />
+          </View>
+          <View style={styles.flex}>
+            <Button title="Galería" icon="images-outline" variant="secondary" loading={picking} onPress={pickFromGallery} />
+          </View>
+        </View>
+      ) : null}
 
-      <MultiPhotoCapture
-        visible={cameraOpen}
-        remaining={MAX_PHOTOS - items.length}
-        onClose={() => setCameraOpen(false)}
-        onDone={add}
-      />
+      <MultiPhotoCapture visible={cameraOpen} remaining={left} onClose={() => setCameraOpen(false)} onDone={add} />
     </View>
   );
 }
@@ -121,6 +146,8 @@ const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     wrap: { gap: space.sm },
     header: { flexDirection: "row", justifyContent: "space-between" },
+    buttons: { flexDirection: "row", gap: space.sm },
+    flex: { flex: 1 },
     grid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
     cell: { width: "31%", aspectRatio: 1 },
     img: { width: "100%", height: "100%", borderRadius: radius.md, backgroundColor: colors.neutralSoft },

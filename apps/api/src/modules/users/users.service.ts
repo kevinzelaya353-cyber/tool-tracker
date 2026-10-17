@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { can, type Role, type UserCreateInput, type UserUpdateInput } from "@tt/shared";
+import { can, type PersonCreateInput, type Role, type UserCreateInput, type UserUpdateInput } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { hashPassword } from "../auth/auth.service.js";
@@ -40,6 +40,22 @@ export class UsersService {
         ip,
       });
       return user;
+    });
+  }
+
+  /** Sin correo ni contraseña: no puede iniciar sesión. */
+  createPerson(actor: AccessClaims, input: PersonCreateInput, ip?: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const person = await tx.user.create({ data: { name: input.name, role: "LECTOR" }, select: PUBLIC_FIELDS });
+      await audit(tx, {
+        actorId: actor.userId,
+        action: "user.create_person",
+        entity: "user",
+        entityId: person.id,
+        diff: { name: person.name },
+        ip,
+      });
+      return person;
     });
   }
 

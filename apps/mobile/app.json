@@ -33,7 +33,13 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-status-bar",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Se usa tu ubicación para marcar en el mapa dónde está una bodega o proyecto."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

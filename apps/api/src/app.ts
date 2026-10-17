@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import type { Env } from "./config/env.js";
+import type { RouteProvider } from "./lib/routing.js";
 import { authenticate } from "./middleware/auth.js";
 import { errorHandler, notFound } from "./middleware/error-handler.js";
 import { auditRouter } from "./modules/audit/audit.routes.js";
@@ -25,6 +26,7 @@ import { ReportsService } from "./modules/reports/reports.service.js";
 import { toolsRouter } from "./modules/tools/tools.routes.js";
 import { ToolsService } from "./modules/tools/tools.service.js";
 import { transfersRouter } from "./modules/transfers/transfers.routes.js";
+import type { TileFetcher } from "./modules/transfers/static-map.js";
 import { TransfersService } from "./modules/transfers/transfers.service.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { UsersService } from "./modules/users/users.service.js";
@@ -47,7 +49,13 @@ type AppEnv = Pick<Env, "NODE_ENV" | "CORS_ORIGINS"> &
 /** Sin `prisma` solo se montan /health y los middlewares base (útil para tests sin BD). */
 export function createApp(
   env: AppEnv,
-  deps?: { prisma: PrismaClient; storage?: ObjectStorage; filesRouter?: express.Router },
+  deps?: {
+    prisma: PrismaClient;
+    storage?: ObjectStorage;
+    filesRouter?: express.Router;
+    routing?: RouteProvider;
+    tiles?: TileFetcher;
+  },
 ) {
   const app = express();
 
@@ -94,7 +102,14 @@ export function createApp(
     app.use("/api/users", requireAuth, usersRouter(new UsersService(prisma, tokens)));
     app.use("/api/audit", requireAuth, auditRouter(prisma));
     app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma)));
-    app.use("/api/transfers", requireAuth, transfersRouter(new TransfersService(prisma)));
+    app.use("/api/transfers", requireAuth, transfersRouter(
+        new TransfersService(prisma, {
+          routing: deps.routing,
+          storage: deps.storage,
+          tiles: deps.tiles,
+          urlTtlSec: env.MEDIA_URL_TTL_SEC ?? 600,
+        }),
+      ),);
     app.use("/api/lifecycle-events", requireAuth, lifecycleRouter(new LifecycleService(prisma)));
     app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(prisma, deps.storage)));
     app.use("/api/reports", requireAuth, reportsRouter(new ReportsService(prisma, env.REPORTS_TZ ?? "UTC")));

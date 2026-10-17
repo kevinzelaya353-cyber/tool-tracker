@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Platform } from "react-native";
 import { api } from "@/lib/api";
 import type { UploadedPhoto } from "@/types/api";
 
@@ -9,12 +10,19 @@ export interface LocalImage {
 }
 
 /** Sube hasta 5 imágenes ya comprimidas (límite por petición de la API). */
-export function uploadPhotos(images: LocalImage[]) {
+export async function uploadPhotos(images: LocalImage[]) {
   const form = new FormData();
-  images.forEach((img, i) => {
-    // Formato de archivo de React Native para FormData.
-    form.append("photos", { uri: img.uri, name: `foto-${i}.jpg`, type: "image/jpeg" } as unknown as Blob);
-  });
+  for (const [i, img] of images.entries()) {
+    const name = `foto-${i}.jpg`;
+    if (Platform.OS === "web") {
+      // En el navegador la uri es blob:/data:; FormData necesita el archivo real.
+      const blob = await (await fetch(img.uri)).blob();
+      form.append("photos", new File([blob], name, { type: blob.type || "image/jpeg" }));
+    } else {
+      // Formato de archivo de React Native para FormData.
+      form.append("photos", { uri: img.uri, name, type: "image/jpeg" } as unknown as Blob);
+    }
+  }
   return api.upload<UploadedPhoto[]>("/api/media", form);
 }
 

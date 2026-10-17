@@ -36,6 +36,9 @@ const envSchema = z.object({
   MEDIA_URL_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(600),
   // Zona horaria para agrupar reportes por mes/año (IANA, p. ej. America/Mexico_City).
   REPORTS_TZ: z.string().default("UTC").refine(isValidTimeZone, "Zona horaria IANA inválida"),
+  // Rutas de traslados: OpenRouteService si hay clave; si no, OSRM (el servidor público es solo de prueba).
+  ORS_API_KEY: z.string().optional(),
+  OSRM_URL: z.string().default("https://router.project-osrm.org"), // vacío = sin rutas
   MEDIA_ORPHAN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
 }).superRefine((env, ctx) => {
   if (env.STORAGE_DRIVER !== "s3") return;

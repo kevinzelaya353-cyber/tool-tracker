@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient, type Role } from "@prisma/client";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
+import type { RouteProvider } from "../../src/lib/routing.js";
 import { hashPassword } from "../../src/modules/auth/auth.service.js";
 import { prismaRefreshStore } from "../../src/modules/auth/refresh-store.prisma.js";
 import { TokenService } from "../../src/modules/auth/token.service.js";
@@ -42,7 +43,13 @@ export function memoryStorage() {
 }
 
 export const storage = memoryStorage();
-export const app = createApp(env, { prisma, storage: storage.storage });
+/** Ruta falsa (sin red): línea de 3 puntos y 1 km por cada 0.01° de diferencia en latitud. */
+export const fakeRouting: RouteProvider = async (from, to) => ({
+  geometry: [[from.lat, from.lng], [(from.lat + to.lat) / 2, (from.lng + to.lng) / 2], [to.lat, to.lng]],
+  distanceM: Math.round(Math.abs(to.lat - from.lat) * 100_000),
+  durationS: 600,
+});
+export const app = createApp(env, { prisma, storage: storage.storage, routing: fakeRouting });
 
 const tokens = new TokenService(
   { accessSecret: env.JWT_ACCESS_SECRET, refreshSecret: env.JWT_REFRESH_SECRET, accessTtlMin: 15, refreshTtlDays: 30 },
@@ -74,7 +81,8 @@ export async function createUser(role: Role, overrides: { name?: string; email?:
     },
   });
   const pair = await tokens.issue({ userId: user.id, role });
-  return { ...user, token: pair.accessToken, refreshToken: pair.refreshToken };
+  // Los usuarios de prueba siempre tienen correo (las personas sin acceso no lo tienen).
+  return { ...user, email: user.email!, token: pair.accessToken, refreshToken: pair.refreshToken };
 }
 
 export type TestUser = Awaited<ReturnType<typeof createUser>>;
@@ -85,6 +93,7 @@ export function as(user: TestUser | null) {
   return {
     get: (path: string) => auth(request(app).get(path)),
     post: (path: string, body?: object) => auth(request(app).post(path)).send(body ?? {}),
+    put: (path: string, body: object) => auth(request(app).put(path)).send(body),
     patch: (path: string, body: object) => auth(request(app).patch(path)).send(body),
     del: (path: string) => auth(request(app).delete(path)),
     /** POST multipart: sin .send() previo, que supertest no permite mezclar con .attach(). */

@@ -5,8 +5,10 @@ import {
   id,
   toolCreateSchema,
   toolListQuerySchema,
+  toolPhotoSchema,
   toolUpdateSchema,
   type ToolListQuery,
+  type ToolPhotoInput,
   type ToolUpdateInput,
 } from "@tt/shared";
 import { AppError } from "../../lib/errors.js";
@@ -53,6 +55,11 @@ export function toolsRouter(svc: ToolsService) {
       throw AppError.forbidden("Solo un administrador puede corregir el precio o la fecha de compra");
     }
     res.json(await svc.update(toolId(res), body, { actorId: actor.userId, ip: req.ip }));
+  });
+
+  r.put("/:id/photo", write, validate("params", idParams), validate("body", toolPhotoSchema), async (req, res) => {
+    const { photoId } = res.locals.body as ToolPhotoInput;
+    res.json(await svc.setPhoto(toolId(res), photoId, { actorId: currentUser(res).userId, ip: req.ip }));
   });
 
   return r;

@@ -1,10 +1,17 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import type { PhotoStage } from "@tt/shared";
 import { PhotoStrip } from "@/components/domain/PhotoStrip";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
-import { useTransfer } from "@/features/transfers/api";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { PhotoPicker } from "@/features/camera/PhotoPicker";
+import { RouteMap } from "@/features/maps/RouteMap";
+import { useAddTransferPhotos, useTransfer } from "@/features/transfers/api";
 import { formatDateTime } from "@/lib/format";
 import { space, makeStyles, useTheme } from "@/theme";
 
@@ -12,13 +19,25 @@ export default function TransferDetailScreen() {
   const styles = useStyles();
   const { font } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { can } = useAuth();
   const q = useTransfer(id);
   if (q.isLoading) return <Loading />;
   if (!q.data) return <Screen><ErrorBanner error={q.error} /></Screen>;
   const t = q.data;
+  // Fotos sin etapa (registradas antes de separar entrega/recepción) cuentan como de entrega.
+  const delivery = t.photos.filter((p) => p.stage !== "RECEPCION").map((p) => p.id);
+  const reception = t.photos.filter((p) => p.stage === "RECEPCION").map((p) => p.id);
 
   return (
     <Screen>
+      <RouteMap
+        from={t.fromLocation}
+        to={t.toLocation}
+        route={t.routeGeometry}
+        distanceM={t.routeDistanceM}
+        durationS={t.routeDurationS}
+      />
+
       <Card>
         <Text style={font.h2}>
           {t.fromLocation.name} → {t.toLocation.name}
@@ -42,13 +61,65 @@ export default function TransferDetailScreen() {
         </Card>
       ))}
 
-      {t.photos.length ? (
-        <>
-          <Text style={font.h2}>Evidencia</Text>
-          <PhotoStrip ids={t.photos.map((p) => p.id)} />
-        </>
-      ) : null}
+      <Text style={font.h2}>Fotos al entregar</Text>
+      {delivery.length ? <PhotoStrip ids={delivery} /> : <Text style={font.small}>Sin fotos.</Text>}
+      <Text style={font.h2}>Fotos al recibir</Text>
+      {reception.length ? <PhotoStrip ids={reception} /> : <Text style={font.small}>Aún no hay fotos de recepción.</Text>}
+
+      {can("transfers:create") ? <AddPhotos transferId={t.id} /> : null}
     </Screen>
+  );
+}
+
+/** Quien recibe (o entrega) puede sumar fotos después; el resto del traslado no se edita. */
+function AddPhotos({ transferId }: { transferId: string }) {
+  const { font } = useTheme();
+  const add = useAddTransferPhotos(transferId);
+  const [open, setOpen] = useState(false);
+  const [stage, setStage] = useState<PhotoStage>("RECEPCION");
+  const [ids, setIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  // Al guardar se remonta el selector para empezar vacío.
+  const [round, setRound] = useState(0);
+  const onPhotos = useCallback((next: string[], busy: boolean) => {
+    setIds(next);
+    setUploading(busy);
+  }, []);
+
+  if (!open) {
+    return <Button title="Agregar fotos" icon="camera-outline" variant="secondary" onPress={() => setOpen(true)} />;
+  }
+
+  const save = () =>
+    add.mutate(
+      { photoIds: ids, stage },
+      {
+        onSuccess: () => {
+          setIds([]);
+          setRound((r) => r + 1);
+          setOpen(false);
+        },
+      },
+    );
+
+  return (
+    <Card style={{ gap: space.md }}>
+      <Text style={font.h2}>Agregar fotos</Text>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <Chip label="Al recibir" selected={stage === "RECEPCION"} onPress={() => setStage("RECEPCION")} />
+        <Chip label="Al entregar" selected={stage === "ENTREGA"} onPress={() => setStage("ENTREGA")} />
+      </View>
+      <ErrorBanner error={add.error} />
+      <PhotoPicker key={round} label="Fotos" onChange={onPhotos} />
+      <Button
+        title={uploading ? "Subiendo fotos…" : "Guardar fotos"}
+        icon="checkmark"
+        disabled={ids.length === 0 || uploading}
+        loading={add.isPending}
+        onPress={save}
+      />
+      <Button title="Cancelar" variant="ghost" onPress={() => setOpen(false)} />
+    </Card>
   );
 }
 

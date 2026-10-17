@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import type { ToolStatus } from "@tt/shared";
+import type { PhotoStage, ToolStatus } from "@tt/shared";
 import type { LockedTool } from "../domain/rules.js";
 import { AppError } from "./errors.js";
 
@@ -37,11 +37,14 @@ export async function attachPhotos(
   tx: Tx,
   photoIds: string[],
   uploaderId: string,
-  target: { transferId: string; toolId?: never } | { lifecycleEventId: string; toolId: string },
+  target:
+    | { transferId: string; stage: PhotoStage; toolId?: never }
+    | { lifecycleEventId: string; toolId: string }
+    | { toolId: string; transferId?: never; lifecycleEventId?: never },
 ): Promise<void> {
   if (photoIds.length === 0) return;
   const { count } = await tx.photo.updateMany({
-    where: { id: { in: photoIds }, uploadedById: uploaderId, transferId: null, lifecycleEventId: null },
+    where: { id: { in: photoIds }, uploadedById: uploaderId, transferId: null, lifecycleEventId: null, toolId: null },
     data: target,
   });
   if (count !== new Set(photoIds).size) {

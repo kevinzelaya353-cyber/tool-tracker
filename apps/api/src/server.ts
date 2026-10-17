@@ -2,9 +2,11 @@ import path from "node:path";
 import { createApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
+import { routeProvider } from "./lib/routing.js";
 import { localFilesRouter, localStorage } from "./modules/media/local-storage.js";
 import { MediaService } from "./modules/media/media.service.js";
 import { s3Storage, type ObjectStorage } from "./modules/media/storage.js";
+import { osmTileFetcher } from "./modules/transfers/static-map.js";
 
 const env = loadEnv();
 
@@ -32,7 +34,9 @@ if (env.STORAGE_DRIVER === "s3") {
   console.log(`Fotos en disco: ${dir}`);
 }
 
-const app = createApp(env, { prisma, storage, filesRouter });
+const routing = routeProvider({ orsApiKey: env.ORS_API_KEY, osrmUrl: env.OSRM_URL });
+const tiles = osmTileFetcher("ToolTracker/0.1 (control de herramientas; mapas de traslados)");
+const app = createApp(env, { prisma, storage, filesRouter, routing, tiles });
 
 const server = app.listen(env.PORT, () => {
   console.log(`API escuchando en http://localhost:${env.PORT}`);

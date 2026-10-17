@@ -34,3 +34,12 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER lifecycle_events_immutable
   BEFORE UPDATE OR DELETE ON lifecycle_events
   FOR EACH ROW EXECUTE FUNCTION forbid_lifecycle_mutation();
+
+-- Coordenadas completas (ambas o ninguna) y dentro de rango.
+ALTER TABLE locations
+  ADD CONSTRAINT locations_coords_pair CHECK ((latitude IS NULL) = (longitude IS NULL)),
+  ADD CONSTRAINT locations_coords_range CHECK (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180);
+
+-- La etapa (entrega/recepción) solo tiene sentido en fotos de traslado.
+ALTER TABLE photos
+  ADD CONSTRAINT photos_stage_only_transfer CHECK (stage IS NULL OR transfer_id IS NOT NULL);

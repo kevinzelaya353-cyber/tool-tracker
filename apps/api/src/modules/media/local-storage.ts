@@ -11,7 +11,8 @@ import type { ObjectStorage } from "./storage.js";
  */
 
 // Las claves las genera el servidor; aun así se valida el formato para impedir path traversal.
-const KEY_RE = /^photos\/\d{4}\/\d{2}\/[0-9a-f-]{36}(_thumb)?\.jpg$/;
+// Fotos: photos/AAAA/MM/<uuid>[_thumb].jpg · Mapas de traslados: maps/<uuid>-<hash>.jpg
+const KEY_RE = /^(photos\/\d{4}\/\d{2}\/[0-9a-f-]{36}(_thumb)?|maps\/[0-9a-f-]{36}-[0-9a-f]{12})\.jpg$/;
 
 export interface LocalStorageConfig {
   dir: string; // carpeta raíz absoluta

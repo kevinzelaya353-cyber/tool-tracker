@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CategoryCreateInput, LocationCreateInput, LocationType, VehicleCreateInput } from "@tt/shared";
+import type { CategoryCreateInput, LocationCreateInput, LocationType, LocationUpdateInput, VehicleCreateInput } from "@tt/shared";
 import { api } from "@/lib/api";
 import type { Category, Location, UserLite, Vehicle } from "@/types/api";
 
@@ -35,11 +35,31 @@ export function useCreateLocation() {
   });
 }
 
+export function useUpdateLocation(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LocationUpdateInput) => api.patch<Location>(`/api/locations/${id}`, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["locations"] });
+      qc.invalidateQueries({ queryKey: ["transfers"] }); // las rutas dependen de los puntos
+    },
+  });
+}
+
 export function useCreateVehicle() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: VehicleCreateInput) => api.post<Vehicle>("/api/vehicles", input),
     onSuccess: () => qc.invalidateQueries({ queryKey: catalogKeys.vehicles }),
+  });
+}
+
+/** Persona sin acceso a la app, para "entregado por" / "recibido por". */
+export function useCreatePerson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<UserLite>("/api/users/people", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: catalogKeys.users }),
   });
 }
 

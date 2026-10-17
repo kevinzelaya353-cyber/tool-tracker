@@ -3,6 +3,7 @@ import { availableEvents, type ToolCreateInput, type ToolListQuery, type ToolUpd
 import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { pageArgs, toPage } from "../../lib/pagination.js";
+import { attachPhotos } from "../../lib/tx-helpers.js";
 
 type Ctx = { actorId: string; ip?: string };
 
@@ -91,11 +92,18 @@ export class ToolsService {
         throw AppError.badRequest("INVALID_LOCATION", "La ubicación inicial debe ser una bodega activa");
       }
 
-      const { initialLocationId, ...data } = input;
+      const { initialLocationId, photoId, ...data } = input;
       const tool = await tx.tool.create({
-        data: { ...data, status: "BODEGA", currentLocationId: initialLocationId, statusChangedAt: input.purchaseDate },
+        data: {
+          ...data,
+          status: "BODEGA",
+          currentLocationId: initialLocationId,
+          statusChangedAt: input.purchaseDate,
+          coverPhotoId: photoId,
+        },
         include: LIST_INCLUDE,
       });
+      if (photoId) await attachPhotos(tx, [photoId], ctx.actorId, { toolId: tool.id });
       await tx.lifecycleEvent.create({
         data: {
           toolId: tool.id,
@@ -139,6 +147,25 @@ export class ToolsService {
       }
       // Precio/fecha de compra afectan reportes financieros: siempre quedan auditados.
       await audit(tx, { actorId: ctx.actorId, action: "tool.update", entity: "tool", entityId: id, diff, ip: ctx.ip });
+      return after;
+    });
+  }
+
+  /** Cambia la foto propia. La anterior no se borra: queda en el historial de fotos de la herramienta. */
+  async setPhoto(id: string, photoId: string | null, ctx: Ctx) {
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.tool.findUnique({ where: { id }, select: { coverPhotoId: true } });
+      if (!before) throw AppError.notFound("Herramienta");
+      if (photoId) await attachPhotos(tx, [photoId], ctx.actorId, { toolId: id });
+      const after = await tx.tool.update({ where: { id }, data: { coverPhotoId: photoId }, include: LIST_INCLUDE });
+      await audit(tx, {
+        actorId: ctx.actorId,
+        action: "tool.photo",
+        entity: "tool",
+        entityId: id,
+        diff: { from: before.coverPhotoId, to: photoId },
+        ip: ctx.ip,
+      });
       return after;
     });
   }

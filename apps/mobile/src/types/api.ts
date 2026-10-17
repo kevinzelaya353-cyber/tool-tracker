@@ -1,4 +1,4 @@
-import type { EventType, LocationType, Permission, Role, ToolStatus } from "@tt/shared";
+import type { EventType, LocationType, Permission, PhotoStage, Role, ToolStatus } from "@tt/shared";
 
 export interface Page<T> {
   data: T[];
@@ -23,6 +23,8 @@ export interface Ref {
 export interface Location extends Ref {
   type: LocationType;
   address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   active: boolean;
   _count?: { tools: number };
 }
@@ -56,6 +58,7 @@ export interface Tool {
   category: Ref;
   currentLocation?: (Ref & { type: LocationType }) | null;
   currentCustodian?: Ref | null;
+  coverPhotoId?: string | null;
 }
 
 export interface ToolDetail extends Tool {
@@ -65,6 +68,14 @@ export interface ToolDetail extends Tool {
 export interface PhotoRef {
   id: string;
   thumbKey?: string | null;
+  /** Solo en fotos de traslado. */
+  stage?: PhotoStage | null;
+}
+
+export interface MapPlace extends Ref {
+  type: LocationType;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export interface HistoryEvent {
@@ -102,7 +113,12 @@ export interface TransferSummary {
   _count: { items: number; photos: number };
 }
 
-export interface TransferDetail extends Omit<TransferSummary, "_count"> {
+export interface TransferDetail extends Omit<TransferSummary, "_count" | "fromLocation" | "toLocation"> {
+  fromLocation: MapPlace;
+  toLocation: MapPlace;
+  routeGeometry?: [number, number][] | null;
+  routeDistanceM?: number | null;
+  routeDurationS?: number | null;
   createdBy: Ref;
   items: { id: string; conditionNote?: string | null; tool: { id: string; code: string; brand: string; model?: string | null; category: { name: string } } }[];
   photos: PhotoRef[];

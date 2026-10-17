@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { SectionList, StyleSheet, Text, View } from "react-native";
+import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { Card } from "@/components/ui/Card";
 import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
@@ -14,6 +14,7 @@ export default function LocationsScreen() {
   const { colors, font } = useTheme();
   const { can } = useAuth();
   const locations = useLocations();
+  const canEdit = can("catalog:write");
 
   if (locations.isLoading) return <Loading />;
   const all = locations.data ?? [];
@@ -41,11 +42,27 @@ export default function LocationsScreen() {
                 {item.name}
               </Text>
               <Text style={font.small}>{item._count?.tools ?? 0} herr.</Text>
+              {canEdit ? (
+                <Pressable
+                  onPress={() => router.push({ pathname: "/locations/new", params: { id: item.id } })}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Editar ${item.name}`}
+                >
+                  <Ionicons name="create-outline" size={20} color={colors.text} />
+                </Pressable>
+              ) : null}
             </View>
             {item.address ? (
               <View style={styles.row}>
                 <Ionicons name="location-outline" size={14} color={colors.textMuted} />
                 <Text style={[font.small, styles.name]}>{item.address}</Text>
+              </View>
+            ) : null}
+            {item.latitude == null ? (
+              <View style={styles.row}>
+                <Ionicons name="map-outline" size={14} color={colors.warning} />
+                <Text style={[font.small, styles.name]}>Sin punto en el mapa: sus traslados no muestran ruta.</Text>
               </View>
             ) : null}
           </Card>

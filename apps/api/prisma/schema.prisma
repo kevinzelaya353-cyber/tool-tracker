@@ -44,8 +44,9 @@ enum EventType {
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @db.VarChar(120)
-  email        String    @unique @db.VarChar(254)
-  passwordHash String    @map("password_hash")
+  /// null = persona sin acceso a la app (solo se registra como quien entrega o recibe).
+  email        String?   @unique @db.VarChar(254)
+  passwordHash String?   @map("password_hash")
   role         Role      @default(LECTOR)
   active       Boolean   @default(true)
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
@@ -69,6 +70,9 @@ model Location {
   name      String       @db.VarChar(120)
   type      LocationType
   address   String?      @db.VarChar(250)
+  // Punto en el mapa (WGS84); se usa para trazar la ruta de los traslados.
+  latitude  Float?
+  longitude Float?
   active    Boolean      @default(true)
   startedAt DateTime?    @map("started_at") @db.Date
   closedAt  DateTime?    @map("closed_at") @db.Date
@@ -118,6 +122,8 @@ model Tool {
   supplier           String?    @db.VarChar(120)
   // Campos derivados: SOLO los modifica el service de dominio dentro de una
   // transacción junto con el LifecycleEvent correspondiente.
+  // Foto propia de la herramienta (la que aparece en su ficha y en el Excel).
+  coverPhotoId       String?    @unique @map("cover_photo_id") @db.Uuid
   status             ToolStatus @default(BODEGA)
   currentLocationId  String?    @map("current_location_id") @db.Uuid
   currentCustodianId String?    @map("current_custodian_id") @db.Uuid
@@ -128,6 +134,7 @@ model Tool {
   category         ToolCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   currentLocation  Location?        @relation("ToolCurrentLocation", fields: [currentLocationId], references: [id], onDelete: Restrict)
   currentCustodian User?            @relation("ToolCustodian", fields: [currentCustodianId], references: [id], onDelete: SetNull)
+  coverPhoto       Photo?           @relation("ToolCover", fields: [coverPhotoId], references: [id], onDelete: SetNull)
   transferItems    TransferItem[]
   events           LifecycleEvent[]
   photos           Photo[]
@@ -148,6 +155,12 @@ model Transfer {
   vehicleId      String?  @map("vehicle_id") @db.Uuid
   movedAt        DateTime @map("moved_at") @db.Timestamptz(3)
   notes          String?  @db.VarChar(500)
+  // Ruta por carretera calculada al registrar el traslado: [[lat, lng], …].
+  routeGeometry  Json?    @map("route_geometry")
+  routeDistanceM Int?     @map("route_distance_m")
+  routeDurationS Int?     @map("route_duration_s")
+  // Imagen del mapa para la lista (maps/<id>-<hash>.jpg); el hash cambia si cambian los puntos o la ruta.
+  mapKey         String?  @map("map_key") @db.VarChar(120)
   createdById    String   @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -182,20 +195,20 @@ model TransferItem {
 }
 
 model LifecycleEvent {
-  id          String     @id @default(uuid()) @db.Uuid
-  toolId      String     @map("tool_id") @db.Uuid
-  type        EventType
-  fromStatus  ToolStatus? @map("from_status") // null solo en PURCHASE
-  toStatus    ToolStatus @map("to_status")
-  occurredAt  DateTime   @map("occurred_at") @db.Timestamptz(3)
-  cost        Decimal?   @db.Decimal(12, 2)
-  description String?    @db.VarChar(500)
-  locationId  String?    @map("location_id") @db.Uuid // ubicación resultante (si aplica)
-  transferId  String?    @map("transfer_id") @db.Uuid
-  reportedById String    @map("reported_by") @db.Uuid
+  id           String      @id @default(uuid()) @db.Uuid
+  toolId       String      @map("tool_id") @db.Uuid
+  type         EventType
+  fromStatus   ToolStatus? @map("from_status") // null solo en PURCHASE
+  toStatus     ToolStatus  @map("to_status")
+  occurredAt   DateTime    @map("occurred_at") @db.Timestamptz(3)
+  cost         Decimal?    @db.Decimal(12, 2)
+  description  String?     @db.VarChar(500)
+  locationId   String?     @map("location_id") @db.Uuid // ubicación resultante (si aplica)
+  transferId   String?     @map("transfer_id") @db.Uuid
+  reportedById String      @map("reported_by") @db.Uuid
   // clock_timestamp() (no now()): now() es el inicio de la transacción, y una transacción que
   // esperó el bloqueo de la herramienta quedaría ordenada antes que la que se confirmó primero.
-  createdAt   DateTime   @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  createdAt    DateTime    @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   tool       Tool      @relation(fields: [toolId], references: [id], onDelete: Restrict)
   location   Location? @relation(fields: [locationId], references: [id], onDelete: Restrict)
@@ -208,24 +221,32 @@ model LifecycleEvent {
   @@map("lifecycle_events")
 }
 
+enum PhotoStage {
+  ENTREGA
+  RECEPCION
+}
+
 model Photo {
-  id               String   @id @default(uuid()) @db.Uuid
-  storageKey       String   @unique @map("storage_key") @db.VarChar(300)
-  thumbKey         String?  @map("thumb_key") @db.VarChar(300)
-  mime             String   @db.VarChar(40)
-  sizeBytes        Int      @map("size_bytes")
+  id               String      @id @default(uuid()) @db.Uuid
+  storageKey       String      @unique @map("storage_key") @db.VarChar(300)
+  thumbKey         String?     @map("thumb_key") @db.VarChar(300)
+  mime             String      @db.VarChar(40)
+  sizeBytes        Int         @map("size_bytes")
   width            Int?
   height           Int?
-  uploadedById     String   @map("uploaded_by") @db.Uuid
-  toolId           String?  @map("tool_id") @db.Uuid
-  transferId       String?  @map("transfer_id") @db.Uuid
-  lifecycleEventId String?  @map("lifecycle_event_id") @db.Uuid
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  uploadedById     String      @map("uploaded_by") @db.Uuid
+  toolId           String?     @map("tool_id") @db.Uuid
+  transferId       String?     @map("transfer_id") @db.Uuid
+  lifecycleEventId String?     @map("lifecycle_event_id") @db.Uuid
+  // Solo en fotos de traslado: si se tomaron al entregar o al recibir.
+  stage            PhotoStage?
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
 
   uploadedBy     User            @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
   tool           Tool?           @relation(fields: [toolId], references: [id], onDelete: SetNull)
   transfer       Transfer?       @relation(fields: [transferId], references: [id], onDelete: SetNull)
   lifecycleEvent LifecycleEvent? @relation(fields: [lifecycleEventId], references: [id], onDelete: SetNull)
+  coverOf        Tool?           @relation("ToolCover")
 
   @@index([transferId])
   @@index([lifecycleEventId])

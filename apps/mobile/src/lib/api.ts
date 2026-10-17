@@ -78,7 +78,7 @@ function refresh(): Promise<boolean> {
 type Query = Record<string, string | number | boolean | undefined | null>;
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   query?: Query;
   body?: unknown;
   form?: FormData;
@@ -141,6 +141,7 @@ export const api = {
   get: <T>(path: string, query?: Query) => request<T>(path, { query }),
   post: <T>(path: string, body?: unknown, opts: Pick<RequestOptions, "auth"> = {}) =>
     request<T>(path, { method: "POST", body, ...opts }),
+  put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body }),
   del: (path: string) => request<void>(path, { method: "DELETE" }),
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", form }),

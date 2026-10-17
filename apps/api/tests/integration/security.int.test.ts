@@ -77,6 +77,19 @@ describe("seguridad (integración)", () => {
       expect(res.status).toBe(200);
       for (const u of res.body) expect(Object.keys(u).sort()).toEqual(["id", "name", "role"]);
     });
+
+    it("BODEGUERO registra personas sin acceso; SUPERVISOR no puede", async () => {
+      const res = await as(base.bodeguero).post("/api/users/people", { name: "Juan Pérez" });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ name: "Juan Pérez", role: "LECTOR" });
+      const person = await prisma.user.findUniqueOrThrow({ where: { id: res.body.id } });
+      expect(person.email).toBeNull();
+      expect(person.passwordHash).toBeNull();
+      expect((await as(base.supervisor).get("/api/users")).body.map((u: { id: string }) => u.id)).toContain(person.id);
+
+      expect((await as(base.supervisor).post("/api/users/people", { name: "Otra" })).status).toBe(403);
+      expect((await as(base.bodeguero).post("/api/users/people", { name: "  " })).status).toBe(400);
+    });
   });
 
   describe("inyección y validación de entrada", () => {

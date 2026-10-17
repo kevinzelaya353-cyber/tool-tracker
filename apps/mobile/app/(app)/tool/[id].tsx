@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { StatusBadge } from "@/components/domain/StatusBadge";
 import { Timeline } from "@/components/domain/Timeline";
+import { ToolCoverPhoto } from "@/components/domain/ToolCoverPhoto";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
@@ -30,6 +31,7 @@ export default function ToolDetailScreen() {
 
   return (
     <Screen>
+      <ToolCoverPhoto toolId={t.id} photoId={t.coverPhotoId} canEdit={can("tools:write")} />
       <Card>
         <Text style={styles.code}>{t.code}</Text>
         <Text style={font.title}>

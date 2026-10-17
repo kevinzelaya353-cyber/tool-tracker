@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { router } from "expo-router";
+import { useCallback, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toolCreateSchema, type ToolCreateInput } from "@tt/shared";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +10,7 @@ import { Screen } from "@/components/ui/Screen";
 import { SelectField, type CreateOption } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { PhotoPicker } from "@/features/camera/PhotoPicker";
 import { useCategories, useCreateCategory, useCreateLocation, useLocations } from "@/features/catalog/api";
 import { useCreateTool } from "@/features/tools/api";
 
@@ -37,8 +39,15 @@ export default function NewToolScreen() {
     defaultValues: { code: "", brand: "", purchasePrice: "", purchaseDate: new Date() },
   });
 
+  const [photoId, setPhotoId] = useState<string>();
+  const [uploading, setUploading] = useState(false);
+  const onPhoto = useCallback((ids: string[], busy: boolean) => {
+    setPhotoId(ids[0]);
+    setUploading(busy);
+  }, []);
+
   const onSubmit = handleSubmit((values) =>
-    create.mutate(values, { onSuccess: (tool) => router.replace(`/tool/${tool.id}`) }),
+    create.mutate({ ...values, photoId }, { onSuccess: (tool) => router.replace(`/tool/${tool.id}`) }),
   );
 
   const text = (name: TextKey, label: string, extra: Partial<React.ComponentProps<typeof TextField>> = {}) => (
@@ -59,8 +68,18 @@ export default function NewToolScreen() {
   );
 
   return (
-    <Screen footer={<Button title="Registrar herramienta" onPress={onSubmit} loading={create.isPending} />}>
+    <Screen
+      footer={
+        <Button
+          title={uploading ? "Subiendo foto…" : "Registrar herramienta"}
+          onPress={onSubmit}
+          disabled={uploading}
+          loading={create.isPending}
+        />
+      }
+    >
       <ErrorBanner error={create.error} />
+      <PhotoPicker label="Foto de la herramienta (opcional)" max={1} onChange={onPhoto} />
       {text("code", "Código interno", { autoCapitalize: "characters", placeholder: "TAL-001", hint: "Se imprime como QR en la herramienta" })}
       <Controller
         control={control}

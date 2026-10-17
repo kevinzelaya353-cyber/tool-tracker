@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
-import { id, userCreateSchema, userUpdateSchema, type UserCreateInput, type UserUpdateInput } from "@tt/shared";
+import {
+  id,
+  personCreateSchema,
+  userCreateSchema,
+  userUpdateSchema,
+  type PersonCreateInput,
+  type UserCreateInput,
+  type UserUpdateInput,
+} from "@tt/shared";
 import { authorize, currentUser } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import type { UsersService } from "./users.service.js";
@@ -20,6 +28,12 @@ export function usersRouter(users: UsersService) {
   r.post("/", authorize("users:manage"), validate("body", userCreateSchema), async (req, res) => {
     const user = await users.create(currentUser(res), res.locals.body as UserCreateInput, req.ip);
     res.status(201).json(user);
+  });
+
+  // Quien administra catálogos puede registrar a quien entrega o recibe sin crearle una cuenta.
+  r.post("/people", authorize("catalog:write"), validate("body", personCreateSchema), async (req, res) => {
+    const person = await users.createPerson(currentUser(res), res.locals.body as PersonCreateInput, req.ip);
+    res.status(201).json(person);
   });
 
   r.patch(

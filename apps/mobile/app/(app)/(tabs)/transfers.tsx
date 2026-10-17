@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { TransferMapThumb } from "@/components/domain/TransferMapThumb";
 import { Card } from "@/components/ui/Card";
 import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
@@ -15,6 +16,9 @@ export default function TransfersScreen() {
   const { can } = useAuth();
   const query = useTransfersInfinite();
   const items = query.data?.pages.flatMap((p) => p.data) ?? [];
+  // En pantallas anchas (web/tablet) el mapa crece; en teléfono queda compacto a la derecha.
+  const { width } = useWindowDimensions();
+  const mapWidth = width >= 900 ? 300 : width >= 600 ? 220 : 132;
 
   return (
     <View style={styles.root}>
@@ -46,19 +50,29 @@ export default function TransfersScreen() {
           ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={colors.primary} /> : null}
           renderItem={({ item }) => (
             <Card onPress={() => router.push(`/transfer/${item.id}`)}>
-              <View style={styles.route}>
-                <Text style={[font.body, styles.place]} numberOfLines={1}>{item.fromLocation.name}</Text>
-                <Ionicons name="arrow-forward" size={16} color={colors.primaryDark} />
-                <Text style={[font.body, styles.place]} numberOfLines={1}>{item.toLocation.name}</Text>
+              <View style={styles.cardRow}>
+                <View style={styles.info}>
+                  <Text style={[font.body, styles.place]} numberOfLines={2}>
+                    {item.fromLocation.name}
+                  </Text>
+                  <View style={styles.route}>
+                    <Ionicons name="arrow-down" size={14} color={colors.primaryDark} />
+                    <Text style={[font.body, styles.place]} numberOfLines={2}>
+                      {item.toLocation.name}
+                    </Text>
+                  </View>
+                  <Text style={font.small}>{formatDateTime(item.movedAt)}</Text>
+                  <Text style={font.small}>
+                    {item._count.items} herramienta(s)
+                    {item._count.photos ? ` · ${item._count.photos} foto(s)` : ""}
+                  </Text>
+                  <Text style={font.small} numberOfLines={2}>
+                    {item.deliveredBy.name} → {item.receivedBy.name}
+                    {item.vehicle ? ` · ${item.vehicle.plate}` : ""}
+                  </Text>
+                </View>
+                <TransferMapThumb transferId={item.id} width={mapWidth} />
               </View>
-              <Text style={font.small}>
-                {formatDateTime(item.movedAt)} · {item._count.items} herramienta(s)
-                {item._count.photos ? ` · ${item._count.photos} foto(s)` : ""}
-              </Text>
-              <Text style={font.small}>
-                {item.deliveredBy.name} → {item.receivedBy.name}
-                {item.vehicle ? ` · ${item.vehicle.plate}` : ""}
-              </Text>
             </Card>
           )}
         />
@@ -75,7 +89,9 @@ const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     list: { padding: space.lg, gap: space.md, paddingBottom: 96 },
-    route: { flexDirection: "row", alignItems: "center", gap: space.sm },
+    route: { flexDirection: "row", alignItems: "center", gap: space.xs },
+    cardRow: { flexDirection: "row", gap: space.md, alignItems: "center" },
+    info: { flex: 1, gap: 2 },
     place: { flexShrink: 1, fontWeight: "700" },
     flex: { flex: 1 },
     projects: {

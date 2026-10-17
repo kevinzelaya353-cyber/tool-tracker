@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LOCATION_TYPE, MANUAL_EVENT_TYPE, ROLE, TOOL_STATUS } from "./enums.js";
+import { LOCATION_TYPE, MANUAL_EVENT_TYPE, PHOTO_STAGE, ROLE, TOOL_STATUS } from "./enums.js";
 
 // ---------- Primitivos ----------
 
@@ -54,15 +54,30 @@ export const userUpdateSchema = z
   .partial()
   .refine((u) => Object.keys(u).length > 0, "Nada que actualizar");
 
+/** Persona sin acceso a la app: solo aparece como quien entrega o recibe herramientas. */
+export const personCreateSchema = z.object({
+  name: shortText(120),
+});
+
 // ---------- Catálogos ----------
 
 export const categoryCreateSchema = z.object({ name: shortText(80) });
 
-export const locationCreateSchema = z.object({
-  name: shortText(120),
-  type: z.enum(LOCATION_TYPE),
-  address: optionalText(250),
-});
+const latitude = z.number().min(-90).max(90);
+const longitude = z.number().min(-180).max(180);
+const bothOrNeither = (v: { latitude?: number | null; longitude?: number | null }) =>
+  (v.latitude == null) === (v.longitude == null);
+const COORDS_MSG = { message: "Indica latitud y longitud juntas", path: ["longitude"] };
+
+export const locationCreateSchema = z
+  .object({
+    name: shortText(120),
+    type: z.enum(LOCATION_TYPE),
+    address: optionalText(250),
+    latitude: latitude.optional(),
+    longitude: longitude.optional(),
+  })
+  .refine(bothOrNeither, COORDS_MSG);
 
 export const vehicleCreateSchema = z.object({
   plate: z.string().trim().toUpperCase().min(3).max(15),
@@ -81,8 +96,11 @@ export const locationUpdateSchema = atLeastOne(
     active: z.boolean(),
     startedAt: z.coerce.date().nullable(),
     closedAt: z.coerce.date().nullable(),
+    // null quita el punto del mapa.
+    latitude: latitude.nullable(),
+    longitude: longitude.nullable(),
   }),
-);
+).refine(bothOrNeither, COORDS_MSG);
 
 export const vehicleUpdateSchema = atLeastOne(vehicleCreateSchema.extend({ active: z.boolean() }));
 
@@ -104,11 +122,15 @@ export const toolCreateSchema = z.object({
   purchaseDate: pastOrNow,
   supplier: optionalText(120),
   initialLocationId: id, // debe ser una BODEGA
+  photoId: id.optional(), // foto propia, ya subida por /media
 });
 
 export const toolUpdateSchema = toolCreateSchema
-  .omit({ id: true, initialLocationId: true })
+  .omit({ id: true, initialLocationId: true, photoId: true })
   .partial();
+
+/** Cambia la foto propia de la herramienta (null la quita). */
+export const toolPhotoSchema = z.object({ photoId: id.nullable() });
 
 export const toolListQuerySchema = z.object({
   status: z.enum(TOOL_STATUS).optional(),
@@ -135,7 +157,8 @@ export const transferCreateSchema = z
       .array(z.object({ toolId: id, conditionNote: optionalText(250) }))
       .min(1, "Agrega al menos una herramienta")
       .max(100),
-    photoIds: z.array(id).max(20).default([]),
+    photoIds: z.array(id).max(20).default([]), // fotos al entregar
+    receptionPhotoIds: z.array(id).max(20).default([]), // fotos al recibir
   })
   .refine((t) => t.fromLocationId !== t.toLocationId, {
     message: "Origen y destino deben ser distintos",
@@ -149,6 +172,12 @@ export const transferCreateSchema = z
     message: "Herramienta duplicada en el traslado",
     path: ["items"],
   });
+
+/** Fotos agregadas después de registrar el traslado (p. ej. al llegar al destino). */
+export const transferPhotosSchema = z.object({
+  photoIds: z.array(id).min(1).max(20),
+  stage: z.enum(PHOTO_STAGE),
+});
 
 export const transferListQuerySchema = z.object({
   locationId: id.optional(), // origen o destino
@@ -200,6 +229,9 @@ export const reportFilterQuerySchema = z
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;
+export type ToolPhotoInput = z.infer<typeof toolPhotoSchema>;
+export type TransferPhotosInput = z.infer<typeof transferPhotosSchema>;
+export type PersonCreateInput = z.infer<typeof personCreateSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type ToolCreateInput = z.infer<typeof toolCreateSchema>;
 export type ToolUpdateInput = z.infer<typeof toolUpdateSchema>;

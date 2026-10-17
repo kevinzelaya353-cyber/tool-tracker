@@ -13,6 +13,9 @@ export interface ToolFilters {
 export const toolKeys = {
   all: ["tools"] as const,
   list: (f: ToolFilters) => ["tools", "list", f] as const,
+  // Clave propia: con la de `list` chocaba con la lista paginada de la pestaña Herramientas
+  // filtrada por ubicación (misma clave, datos { pages } en vez de un arreglo).
+  atLocation: (locationId?: string) => ["tools", "at-location", locationId] as const,
   detail: (id: string) => ["tools", "detail", id] as const,
   history: (id: string) => ["tools", "history", id] as const,
 };
@@ -31,7 +34,7 @@ export const useToolsInfinite = (filters: ToolFilters) =>
 /** Todas las herramientas de una ubicación (para el wizard de traslado; máx. 100 por página de API). */
 export const useToolsAtLocation = (locationId?: string) =>
   useQuery({
-    queryKey: toolKeys.list({ locationId }),
+    queryKey: toolKeys.atLocation(locationId),
     enabled: !!locationId,
     queryFn: async () => {
       const out: Tool[] = [];
@@ -50,6 +53,15 @@ export const useToolHistory = (id: string) =>
   useQuery({ queryKey: toolKeys.history(id), queryFn: () => api.get<HistoryEvent[]>(`/api/tools/${id}/history`) });
 
 export const fetchToolByCode = (code: string) => api.get<ToolDetail>(`/api/tools/by-code/${encodeURIComponent(code)}`);
+
+/** Cambia la foto propia de la herramienta (null la quita). */
+export function useSetToolPhoto(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (photoId: string | null) => api.put<Tool>(`/api/tools/${id}/photo`, { photoId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: toolKeys.all }),
+  });
+}
 
 export function useCreateTool() {
   const qc = useQueryClient();
