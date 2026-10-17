@@ -1,6 +1,6 @@
 import type { PhotoStage, Prisma, PrismaClient } from "@prisma/client";
 import ExcelJS from "exceljs";
-import { TOOL_STATUS_LABEL, type EventType } from "@tt/shared";
+import { TOOL_STATUS, TOOL_STATUS_LABEL, type EventType, type ToolStatus } from "@tt/shared";
 import type { ObjectStorage } from "../media/storage.js";
 
 const MONEY_FMT = '"L" #,##0.00';
@@ -15,6 +15,35 @@ const PHOTOS_COL_WIDTH = 27; // ~3 miniaturas de 56 px
 
 const HEADER_FILL = "FFF59E0B";
 const BAND_FILL = "FFFEF3C7";
+const ZEBRA_FILL = "FFF7F7F7";
+const BORDER_COLOR = "FFBFBFBF";
+
+/** Color fuerte para la celda de estado, tono suave para el resto de la fila. */
+type Tone = { strong: string; font: string; tint: string };
+
+export const STATUS_TONE: Record<ToolStatus, Tone> = {
+  BODEGA: { strong: "FF2E7D32", font: "FFFFFFFF", tint: "FFE8F5E9" }, // verde: disponible, en buen estado
+  EN_PROYECTO: { strong: "FF1565C0", font: "FFFFFFFF", tint: "FFE3F2FD" }, // azul: en uso
+  EN_MANTENIMIENTO: { strong: "FFF9A825", font: "FF3E2723", tint: "FFFFF8E1" }, // amarillo
+  DANADA: { strong: "FFE65100", font: "FFFFFFFF", tint: "FFFFF3E0" }, // naranja
+  EXTRAVIADA: { strong: "FFC62828", font: "FFFFFFFF", tint: "FFFFEBEE" }, // rojo
+  DADA_DE_BAJA: { strong: "FF616161", font: "FFFFFFFF", tint: "FFEEEEEE" }, // gris
+};
+
+/** Movimientos del historial coloreados según el estado al que llevan (los traslados no se colorean). */
+const EVENT_TONE: Partial<Record<EventType, Tone>> = {
+  PURCHASE: STATUS_TONE.BODEGA,
+  MAINTENANCE_START: STATUS_TONE.EN_MANTENIMIENTO,
+  MAINTENANCE_END: STATUS_TONE.BODEGA,
+  DAMAGE: STATUS_TONE.DANADA,
+  LOSS: STATUS_TONE.EXTRAVIADA,
+  RECOVERY: STATUS_TONE.BODEGA,
+  DECOMMISSION: STATUS_TONE.DADA_DE_BAJA,
+};
+
+const solid = (argb: string): ExcelJS.Fill => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
+const THIN: Partial<ExcelJS.Border> = { style: "thin", color: { argb: BORDER_COLOR } };
+const GRID: Partial<ExcelJS.Borders> = { top: THIN, left: THIN, bottom: THIN, right: THIN };
 
 const EVENT_LABEL: Record<EventType, string> = {
   PURCHASE: "Alta (compra)",
@@ -41,6 +70,7 @@ const COLUMNS: Partial<ExcelJS.Column>[] = [
   { header: "Foto", key: "photo", width: 13 },
 ];
 const PHOTO_COL = COLUMNS.length - 1; // índice 0-based de la columna "Foto"
+const STATUS_COL = COLUMNS.findIndex((c) => c.key === "status") + 1; // 1-based, igual en "Herramientas"
 
 type Point = { latitude: number | null; longitude: number | null };
 const hasPoint = (p: Point): p is { latitude: number; longitude: number } => p.latitude != null && p.longitude != null;
@@ -69,12 +99,45 @@ export function sheetName(raw: string, used: Set<string>): string {
   return name;
 }
 
-function styleHeader(ws: ExcelJS.Worksheet, row = 1) {
+function styleHeader(ws: ExcelJS.Worksheet, row = 1, cols = ws.columns.length) {
   const header = ws.getRow(row);
-  header.font = { bold: true, color: { argb: "FF1F1300" } };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_FILL } };
-  header.alignment = { vertical: "middle", wrapText: true };
-  ws.views = [{ state: "frozen", ySplit: row }];
+  header.height = 30;
+  for (let c = 1; c <= cols; c++) {
+    const cell = header.getCell(c);
+    cell.font = { bold: true, color: { argb: "FF1F1300" } };
+    cell.fill = solid(HEADER_FILL);
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    cell.border = { top: THIN, left: THIN, right: THIN, bottom: { style: "medium", color: { argb: "FF7A4F01" } } };
+  }
+  if (row === 1) ws.views = [{ state: "frozen", ySplit: row }];
+}
+
+/** Tiñe la fila con el tono del estado y resalta su celda de estado. */
+function paintRow(row: ExcelJS.Row, cols: number, tone: Tone, statusCol: number) {
+  for (let c = 1; c <= cols; c++) row.getCell(c).fill = solid(tone.tint);
+  const cell = row.getCell(statusCol);
+  cell.fill = solid(tone.strong);
+  cell.font = { bold: true, color: { argb: tone.font } };
+  cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+}
+
+/**
+ * Formato de tabla para las filas de datos: cuadrícula en cada celda y filas alternas
+ * en gris claro (si la fila no tiene ya un color). Las filas vacías quedan como separadores.
+ */
+function gridTable(ws: ExcelJS.Worksheet, from: number, to: number, cols = ws.columns.length, opts: { filter?: boolean } = {}) {
+  let data = 0;
+  for (let r = from + 1; r <= to; r++) {
+    const row = ws.getRow(r);
+    if (!row.hasValues) continue;
+    const zebra = data++ % 2 === 1;
+    for (let c = 1; c <= cols; c++) {
+      const cell = row.getCell(c);
+      cell.border = GRID;
+      if (zebra && !cell.fill) cell.fill = solid(ZEBRA_FILL);
+    }
+  }
+  if (opts.filter && to > from) ws.autoFilter = { from: { row: from, column: 1 }, to: { row: from, column: cols } };
 }
 
 const link = (url: string | null, text: string): ExcelJS.CellValue => (url ? { text, hyperlink: url } : "");
@@ -187,8 +250,25 @@ export class ExportService {
         count: { formula: `SUM(D2:D${last})` },
         value: { formula: `SUM(E2:E${last})` },
       });
-      total.font = { bold: true };
+      gridTable(summary, 1, last);
+      for (let c = 1; c <= summary.columns.length; c++) {
+        const cell = total.getCell(c);
+        cell.font = { bold: true };
+        cell.fill = solid(BAND_FILL);
+        cell.border = { ...GRID, top: { style: "medium", color: { argb: "FF7A4F01" } } };
+      }
     }
+
+    // Leyenda de colores con el conteo de herramientas por estado.
+    summary.addRow([]);
+    const legendHeader = summary.addRow(["Estado", "Herramientas"]);
+    styleHeader(summary, legendHeader.number, 2);
+    for (const status of TOOL_STATUS) {
+      const row = summary.addRow([TOOL_STATUS_LABEL[status], tools.filter((t) => t.status === status).length]);
+      paintRow(row, 2, STATUS_TONE[status], 1);
+      row.getCell(1).alignment = { vertical: "middle", horizontal: "left" };
+    }
+    gridTable(summary, legendHeader.number, summary.rowCount, 2);
 
     // ---------- Herramientas ----------
     const all = wb.addWorksheet(sheetName("Herramientas", used));
@@ -220,8 +300,10 @@ export class ExportService {
         lastMove: last?.occurredAt ?? null,
       });
       row.alignment = { vertical: "middle" };
+      paintRow(row, all.columns.length, STATUS_TONE[t.status], STATUS_COL);
       await this.placePhoto(wb, all, row, allPhotoCol, photoKeys.get(t.id));
     }
+    gridTable(all, 1, all.rowCount, all.columns.length, { filter: true });
 
     // ---------- Historial por herramienta ----------
     const hist = wb.addWorksheet(sheetName("Historial", used));
@@ -280,6 +362,8 @@ export class ExportService {
               },
         );
         row.alignment = { vertical: "middle", wrapText: true };
+        const tone = tr ? undefined : EVENT_TONE[e.type];
+        if (tone) paintRow(row, lastCol, tone, 2);
         // Fotos sin etapa (traslados anteriores o eventos) se muestran como de entrega/evidencia.
         const photos = tr ? tr.photos : e.photos.map((p) => ({ ...p, stage: null as PhotoStage | null }));
         const delivery = photos.filter((p) => p.stage !== "RECEPCION");
@@ -291,6 +375,7 @@ export class ExportService {
       }
       hist.addRow([]);
     }
+    gridTable(hist, 1, hist.rowCount);
 
     // ---------- Traslados ----------
     const tws = wb.addWorksheet(sheetName("Traslados", used));
@@ -325,7 +410,7 @@ export class ExportService {
         notes: tr.notes ?? "",
       }).alignment = { vertical: "top", wrapText: true };
     }
-    if (transfers.length) tws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: tws.columns.length } };
+    gridTable(tws, 1, tws.rowCount, tws.columns.length, { filter: true });
 
     // ---------- Una pestaña por ubicación ----------
     for (const loc of locations) {
@@ -348,8 +433,10 @@ export class ExportService {
           supplier: t.supplier ?? "",
         });
         row.alignment = { vertical: "middle" };
+        paintRow(row, COLUMNS.length, STATUS_TONE[t.status], STATUS_COL);
         await this.placePhoto(wb, ws, row, PHOTO_COL, photoKeys.get(t.id));
       }
+      gridTable(ws, 1, ws.rowCount, COLUMNS.length, { filter: true });
     }
 
     return Buffer.from(await wb.xlsx.writeBuffer());
