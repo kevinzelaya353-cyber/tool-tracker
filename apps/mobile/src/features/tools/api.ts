@@ -13,6 +13,7 @@ export interface ToolFilters {
 export const toolKeys = {
   all: ["tools"] as const,
   list: (f: ToolFilters) => ["tools", "list", f] as const,
+  byCategory: (f: ToolFilters) => ["tools", "by-category", f] as const,
   // Clave propia: con la de `list` chocaba con la lista paginada de la pestaña Herramientas
   // filtrada por ubicación (misma clave, datos { pages } en vez de un arreglo).
   atLocation: (locationId?: string) => ["tools", "at-location", locationId] as const,
@@ -22,13 +23,28 @@ export const toolKeys = {
 
 const PAGE_SIZE = 20;
 
-export const useToolsInfinite = (filters: ToolFilters) =>
+export const useToolsInfinite = (filters: ToolFilters, enabled = true) =>
   useInfiniteQuery({
     queryKey: toolKeys.list(filters),
+    enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
       api.get<Page<Tool>>("/api/tools", { ...filters, page: pageParam, pageSize: PAGE_SIZE }),
     getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
+  });
+
+export interface CategoryCount {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/** Categorías con cuántas herramientas cumplen los filtros (para la vista agrupada). */
+export const useToolCategoryCounts = (filters: Omit<ToolFilters, "categoryId">, enabled = true) =>
+  useQuery({
+    queryKey: toolKeys.byCategory(filters),
+    enabled,
+    queryFn: () => api.get<CategoryCount[]>("/api/tools/categories", { ...filters }),
   });
 
 /** Todas las herramientas de una ubicación (para el wizard de traslado; máx. 100 por página de API). */

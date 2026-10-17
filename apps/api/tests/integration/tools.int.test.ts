@@ -74,6 +74,28 @@ describe("herramientas (integración)", () => {
     expect(search.body.data.map((t: { code: string }) => t.code)).toEqual(["BUSCA-01"]);
   });
 
+  it("conteo por categoría con los mismos filtros que la lista", async () => {
+    const taladros = await prisma.toolCategory.create({ data: { name: "Taladros" } });
+    await prisma.toolCategory.create({ data: { name: "Vacía" } });
+    for (let i = 0; i < 3; i++) await createTool(base, { categoryId: taladros.id });
+    await createTool(base);
+
+    const res = await as(base.lector).get("/api/tools/categories");
+    expect(res.status).toBe(200);
+    // Sin la categoría vacía.
+    expect(res.body).toHaveLength(2);
+    expect(res.body).toEqual(
+      expect.arrayContaining([
+        { id: base.category.id, name: base.category.name, count: 1 },
+        { id: taladros.id, name: "Taladros", count: 3 },
+      ]),
+    );
+    expect((await as(base.lector).get("/api/tools/categories?status=EXTRAVIADA")).body).toEqual([]);
+
+    const list = await as(base.lector).get(`/api/tools?categoryId=${taladros.id}`);
+    expect(list.body.total).toBe(3);
+  });
+
   it("buscar por código (QR) y ver historial", async () => {
     const tool = await createTool(base, { code: "QR-777" });
     const byCode = await as(base.supervisor).get("/api/tools/by-code/qr-777");

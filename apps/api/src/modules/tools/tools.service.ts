@@ -13,28 +13,42 @@ const LIST_INCLUDE = {
   currentCustodian: { select: { id: true, name: true } },
 } satisfies Prisma.ToolInclude;
 
+function toolWhere(q: Partial<ToolListQuery>): Prisma.ToolWhereInput {
+  return {
+    status: q.status,
+    categoryId: q.categoryId,
+    currentLocationId: q.locationId,
+    ...(q.q && {
+      OR: [
+        { code: { contains: q.q, mode: "insensitive" } },
+        { brand: { contains: q.q, mode: "insensitive" } },
+        { model: { contains: q.q, mode: "insensitive" } },
+        { serial: { contains: q.q, mode: "insensitive" } },
+      ],
+    }),
+  };
+}
+
 export class ToolsService {
   constructor(private readonly prisma: PrismaClient) {}
 
   async list(q: ToolListQuery) {
-    const where: Prisma.ToolWhereInput = {
-      status: q.status,
-      categoryId: q.categoryId,
-      currentLocationId: q.locationId,
-      ...(q.q && {
-        OR: [
-          { code: { contains: q.q, mode: "insensitive" } },
-          { brand: { contains: q.q, mode: "insensitive" } },
-          { model: { contains: q.q, mode: "insensitive" } },
-          { serial: { contains: q.q, mode: "insensitive" } },
-        ],
-      }),
-    };
+    const where = toolWhere(q);
     const [total, data] = await Promise.all([
       this.prisma.tool.count({ where }),
       this.prisma.tool.findMany({ where, include: LIST_INCLUDE, orderBy: { code: "asc" }, ...pageArgs(q) }),
     ]);
     return toPage(data, total, q);
+  }
+
+  /** Categorías con cuántas herramientas cumplen los filtros (sin las que quedan vacías), por nombre. */
+  async countByCategory(q: Omit<ToolListQuery, "categoryId" | "page" | "pageSize">) {
+    const [groups, categories] = await Promise.all([
+      this.prisma.tool.groupBy({ by: ["categoryId"], where: toolWhere(q), _count: { _all: true } }),
+      this.prisma.toolCategory.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
+    const counts = new Map(groups.map((g) => [g.categoryId, g._count._all]));
+    return categories.flatMap((c) => (counts.get(c.id) ? [{ ...c, count: counts.get(c.id)! }] : []));
   }
 
   async get(id: string) {

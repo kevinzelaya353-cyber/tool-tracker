@@ -1,29 +1,38 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { TOOL_STATUS, TOOL_STATUS_LABEL, type ToolStatus } from "@tt/shared";
 import { ToolCard } from "@/components/domain/ToolCard";
+import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { useLocations } from "@/features/catalog/api";
-import { useToolsInfinite } from "@/features/tools/api";
+import { useCategories, useLocations } from "@/features/catalog/api";
+import { useToolCategoryCounts, useToolsInfinite } from "@/features/tools/api";
 import { useDebounced } from "@/lib/useDebounced";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
 export default function ToolsScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
+  const { colors, font } = useTheme();
   const { can } = useAuth();
   const params = useLocalSearchParams<{ status?: ToolStatus; locationId?: string }>();
   const [status, setStatus] = useState<ToolStatus | undefined>(params.status);
   const [locationId, setLocationId] = useState<string | undefined>(params.locationId);
+  const [categoryId, setCategoryId] = useState<string | undefined>();
+  const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState("");
-  const query = useToolsInfinite({ status, locationId, q: useDebounced(q.trim()) || undefined });
+  const search = useDebounced(q.trim()) || undefined;
+  // Sin búsqueda ni categoría elegida se muestran las categorías; al buscar se busca en todas.
+  const grouped = !categoryId && !search && !showAll;
+  const query = useToolsInfinite({ status, locationId, categoryId, q: search }, !grouped);
+  const counts = useToolCategoryCounts({ status, locationId }, grouped);
   const location = useLocations().data?.find((l) => l.id === locationId);
+  const category = useCategories().data?.find((c) => c.id === categoryId);
   const tools = query.data?.pages.flatMap((p) => p.data) ?? [];
+  const total = counts.data?.reduce((s, c) => s + c.count, 0) ?? 0;
 
   // El dashboard navega aquí con ?status=… y la lista de proyectos con ?locationId=…
   useEffect(() => {
@@ -62,6 +71,16 @@ export default function ToolsScreen() {
               }}
             />
           ) : null}
+          {categoryId || showAll ? (
+            <Chip
+              label={`${categoryId ? (category?.name ?? "Categoría") : "Todas las categorías"}  ✕`}
+              selected
+              onPress={() => {
+                setCategoryId(undefined);
+                setShowAll(false);
+              }}
+            />
+          ) : null}
           <Chip label="Todas" selected={!status} onPress={() => setStatus(undefined)} />
           {TOOL_STATUS.map((s) => (
             <Chip
@@ -74,7 +93,45 @@ export default function ToolsScreen() {
         </ScrollView>
       </View>
 
-      {query.isLoading ? (
+      {grouped ? (
+        counts.isLoading ? (
+          <Loading />
+        ) : (
+          <FlatList
+            data={counts.data ?? []}
+            keyExtractor={(c) => c.id}
+            contentContainerStyle={styles.list}
+            refreshing={counts.isRefetching}
+            onRefresh={counts.refetch}
+            ListHeaderComponent={
+              <>
+                <ErrorBanner error={counts.error} />
+                {total ? (
+                  <Pressable onPress={() => setShowAll(true)} style={styles.allLink} accessibilityRole="button">
+                    <Text style={styles.allText}>Ver todas ({total})</Text>
+                    <Ionicons name="list" size={16} color={colors.primaryDark} />
+                  </Pressable>
+                ) : null}
+              </>
+            }
+            renderItem={({ item }) => (
+              <Card onPress={() => setCategoryId(item.id)}>
+                <View style={styles.catRow}>
+                  <View style={styles.catIcon}>
+                    <Ionicons name="hammer-outline" size={20} color={colors.primaryDark} />
+                  </View>
+                  <Text style={[font.body, styles.catName]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.catCount}>{item.count}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </View>
+              </Card>
+            )}
+            ListEmptyComponent={<EmptyState icon="hammer-outline" title="Sin herramientas" />}
+          />
+        )
+      ) : query.isLoading ? (
         <Loading />
       ) : (
         <FlatList
@@ -114,5 +171,28 @@ const useStyles = makeStyles(({ colors }) =>
     input: { flex: 1, fontSize: 15, color: colors.text },
     chips: { gap: space.sm, paddingHorizontal: space.lg },
     list: { padding: space.lg, gap: space.md, paddingBottom: 96 },
+    allLink: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: space.xs, paddingBottom: space.xs },
+    allText: { fontSize: 14, fontWeight: "700", color: colors.primaryDark },
+    catRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+    catIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.md,
+      backgroundColor: colors.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    catName: { flex: 1, fontWeight: "700" },
+    catCount: {
+      minWidth: 32,
+      textAlign: "center",
+      fontSize: 14,
+      fontWeight: "800",
+      color: colors.text,
+      backgroundColor: colors.neutralSoft,
+      borderRadius: radius.pill,
+      paddingHorizontal: space.sm,
+      paddingVertical: 2,
+    },
   }),
 );

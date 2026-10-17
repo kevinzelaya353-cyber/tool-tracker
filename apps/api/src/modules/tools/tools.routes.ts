@@ -30,6 +30,11 @@ export function toolsRouter(svc: ToolsService) {
     res.json(await svc.list(res.locals.query as ToolListQuery));
   });
 
+  // Conteo por categoría para la vista agrupada de la app (mismos filtros que la lista).
+  r.get("/categories", read, validate("query", toolListQuerySchema.omit({ categoryId: true, page: true, pageSize: true })), async (_req, res) => {
+    res.json(await svc.countByCategory(res.locals.query as ToolListQuery));
+  });
+
   // Escaneo de QR desde la app.
   r.get("/by-code/:code", read, validate("params", codeParams), async (_req, res) => {
     res.json(await svc.getByCode((res.locals.params as z.infer<typeof codeParams>).code));
