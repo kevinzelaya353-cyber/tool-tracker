@@ -19,6 +19,8 @@ export default function AppLayout() {
       <Stack.Screen name="event/new" options={{ title: "Registrar evento", presentation: "modal" }} />
       <Stack.Screen name="transfer/new" options={{ title: "Nuevo traslado" }} />
       <Stack.Screen name="transfer/[id]" options={{ title: "Traslado" }} />
+      <Stack.Screen name="locations/index" options={{ title: "Proyectos y bodegas" }} />
+      <Stack.Screen name="locations/new" options={{ title: "Nuevo proyecto", presentation: "modal" }} />
       <Stack.Screen name="scan" options={{ title: "Escanear código", presentation: "fullScreenModal", headerShown: false }} />
     </Stack>
   );

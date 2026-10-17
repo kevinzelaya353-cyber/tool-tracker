@@ -11,6 +11,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 /** Almacenamiento de objetos. El bucket es privado: se lee solo con URLs firmadas de corta duración. */
 export interface ObjectStorage {
   put(key: string, body: Buffer, contentType: string): Promise<void>;
+  /** Lee el objeto completo (exportaciones del servidor; los clientes usan URLs firmadas). */
+  get(key: string): Promise<Buffer>;
   remove(keys: string[]): Promise<void>;
   signedUrl(key: string, ttlSec: number): Promise<string>;
 }
@@ -50,6 +52,12 @@ export function s3Storage(cfg: S3StorageConfig): ObjectStorage & { ensureBucket(
           ContentDisposition: "inline",
         }),
       );
+    },
+
+    async get(key) {
+      const out = await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
+      if (!out.Body) throw new Error(`Objeto vacío: ${key}`);
+      return Buffer.from(await out.Body.transformToByteArray());
     },
 
     async remove(keys) {

@@ -47,7 +47,7 @@ export default function Dashboard() {
           <QuickAction icon="swap-horizontal" label="Nuevo traslado" primary onPress={() => router.push("/transfer/new")} />
         ) : null}
         <QuickAction icon="qr-code-outline" label="Escanear" onPress={() => router.push("/scan")} />
-        {can("tools:write") ? <QuickAction icon="add-circle-outline" label="Alta" onPress={() => router.push("/tool/new")} /> : null}
+        {can("tools:write") ? <QuickAction icon="add-circle-outline" label="Agregar" onPress={() => router.push("/tool/new")} /> : null}
       </View>
 
       <ErrorBanner error={counts.error} />

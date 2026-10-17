@@ -1,3 +1,4 @@
+import ExcelJS from "exceljs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { as, createTool, prisma, resetDb, seedBase, transferBody, type Base } from "./helpers.js";
 
@@ -117,5 +118,31 @@ describe("reportes financieros (integración)", () => {
 
   it("requiere autenticación", async () => {
     expect((await as(null).get("/api/reports/summary")).status).toBe(401);
+    expect((await as(null).get("/api/reports/export/inventory.xlsx")).status).toBe(401);
+  });
+
+  it("exporta a Excel: resumen y una pestaña por ubicación con sus herramientas", async () => {
+    const res = await as(base.lector)
+      .get("/api/reports/export/inventory.xlsx")
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("spreadsheetml");
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.body as Buffer);
+    const names = wb.worksheets.map((w) => w.name);
+    expect(names[0]).toBe("Resumen");
+    expect(names).toEqual(expect.arrayContaining([base.bodega.name, base.obraA.name, base.obraB.name]));
+
+    // P2 (80.00) quedó en la obra A tras el traslado.
+    const obra = wb.getWorksheet(base.obraA.name)!;
+    expect(obra.getRow(1).getCell(1).value).toBe("Código");
+    expect(obra.rowCount).toBe(2);
+    expect(obra.getRow(2).getCell(8).value).toBe(80);
   });
 });

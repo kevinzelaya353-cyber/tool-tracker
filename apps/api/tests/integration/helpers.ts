@@ -30,6 +30,11 @@ export function memoryStorage() {
   const objects = new Map<string, { body: Buffer; contentType: string }>();
   const storage: ObjectStorage = {
     put: async (key, body, contentType) => void objects.set(key, { body, contentType }),
+    get: async (key) => {
+      const o = objects.get(key);
+      if (!o) throw new Error(`No existe ${key}`);
+      return o.body;
+    },
     remove: async (keys) => keys.forEach((k) => objects.delete(k)),
     signedUrl: async (key, ttl) => `https://storage.test/${key}?ttl=${ttl}`,
   };

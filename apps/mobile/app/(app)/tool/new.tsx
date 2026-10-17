@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { ErrorBanner } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
-import { SelectField } from "@/components/ui/SelectField";
+import { SelectField, type CreateOption } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
-import { useCategories, useLocations } from "@/features/catalog/api";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { useCategories, useCreateCategory, useCreateLocation, useLocations } from "@/features/catalog/api";
 import { useCreateTool } from "@/features/tools/api";
 
 type TextKey = "code" | "brand" | "model" | "serial" | "purchasePrice" | "supplier";
@@ -17,6 +18,20 @@ export default function NewToolScreen() {
   const categories = useCategories();
   const bodegas = useLocations("BODEGA");
   const create = useCreateTool();
+  const { can } = useAuth();
+  const createCategory = useCreateCategory();
+  const createLocation = useCreateLocation();
+  const canCatalog = can("catalog:write");
+  const newCategory: CreateOption | undefined = canCatalog
+    ? { noun: "tipo de herramienta", onCreate: async (name) => (await createCategory.mutateAsync({ name })).id }
+    : undefined;
+  const newBodega: CreateOption | undefined = canCatalog
+    ? {
+        noun: "bodega",
+        detailLabel: "Dirección (opcional)",
+        onCreate: async (name, address) => (await createLocation.mutateAsync({ name, type: "BODEGA", address })).id,
+      }
+    : undefined;
   const { control, handleSubmit } = useForm<ToolCreateInput>({
     resolver: zodResolver(toolCreateSchema),
     defaultValues: { code: "", brand: "", purchasePrice: "", purchaseDate: new Date() },
@@ -57,6 +72,7 @@ export default function NewToolScreen() {
             onChange={field.onChange}
             error={fieldState.error ? "Selecciona un tipo" : undefined}
             options={(categories.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+            create={newCategory}
           />
         )}
       />
@@ -82,6 +98,7 @@ export default function NewToolScreen() {
             onChange={field.onChange}
             error={fieldState.error ? "Selecciona una bodega" : undefined}
             options={(bodegas.data ?? []).map((l) => ({ value: l.id, label: l.name }))}
+            create={newBodega}
           />
         )}
       />

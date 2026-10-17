@@ -1,7 +1,8 @@
 import type { EventType } from "@tt/shared";
 
-const currency = process.env.EXPO_PUBLIC_CURRENCY ?? "USD";
-const moneyFmt = new Intl.NumberFormat("es", { style: "currency", currency });
+// Lempiras por defecto; "es-HN" da el formato local: L 1,234.50.
+const currency = process.env.EXPO_PUBLIC_CURRENCY ?? "HNL";
+const moneyFmt = new Intl.NumberFormat("es-HN", { style: "currency", currency });
 const dateFmt = new Intl.DateTimeFormat("es", { day: "2-digit", month: "short", year: "numeric" });
 const dateTimeFmt = new Intl.DateTimeFormat("es", {
   day: "2-digit",

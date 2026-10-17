@@ -2,11 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Card } from "@/components/ui/Card";
+import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useTransfersInfinite } from "@/features/transfers/api";
 import { formatDateTime } from "@/lib/format";
-import { space, makeStyles, useTheme } from "@/theme";
+import { radius, space, makeStyles, useTheme } from "@/theme";
 
 export default function TransfersScreen() {
   const styles = useStyles();
@@ -28,7 +29,19 @@ export default function TransfersScreen() {
           onRefresh={query.refetch}
           onEndReachedThreshold={0.4}
           onEndReached={() => query.hasNextPage && !query.isFetchingNextPage && query.fetchNextPage()}
-          ListHeaderComponent={<ErrorBanner error={query.error} />}
+          ListHeaderComponent={
+            <>
+              <Pressable style={styles.projects} onPress={() => router.push("/locations")} accessibilityRole="button">
+                <Ionicons name="business-outline" size={22} color={colors.primaryDark} />
+                <View style={styles.flex}>
+                  <Text style={[font.body, styles.place]}>Proyectos y bodegas</Text>
+                  <Text style={font.small}>Registrar proyectos con su ubicación</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </Pressable>
+              <ErrorBanner error={query.error} />
+            </>
+          }
           ListEmptyComponent={<EmptyState icon="swap-horizontal" title="Aún no hay traslados" />}
           ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={colors.primary} /> : null}
           renderItem={({ item }) => (
@@ -52,32 +65,26 @@ export default function TransfersScreen() {
       )}
 
       {can("transfers:create") ? (
-        <Pressable style={styles.fab} onPress={() => router.push("/transfer/new")} accessibilityLabel="Nuevo traslado">
-          <Ionicons name="add" size={30} color={colors.onPrimary} />
-        </Pressable>
+        <Fab onPress={() => router.push("/transfer/new")} accessibilityLabel="Nuevo traslado" />
       ) : null}
     </View>
   );
 }
 
-const useStyles = makeStyles(({ colors, shadow }) =>
+const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     list: { padding: space.lg, gap: space.md, paddingBottom: 96 },
     route: { flexDirection: "row", alignItems: "center", gap: space.sm },
     place: { flexShrink: 1, fontWeight: "700" },
-    fab: {
-      position: "absolute",
-      right: space.lg,
-      bottom: space.lg,
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: colors.primary,
+    flex: { flex: 1 },
+    projects: {
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      ...shadow,
-      elevation: 6,
+      gap: space.md,
+      padding: space.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.primarySoft,
     },
   }),
 );

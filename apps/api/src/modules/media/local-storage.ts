@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
 import type { ObjectStorage } from "./storage.js";
@@ -34,6 +34,9 @@ export function localStorage(cfg: LocalStorageConfig): ObjectStorage {
       const file = resolveKey(cfg.dir, key);
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, body);
+    },
+    get(key) {
+      return readFile(resolveKey(cfg.dir, key));
     },
     async remove(keys) {
       await Promise.all(keys.map((k) => rm(resolveKey(cfg.dir, k), { force: true })));

@@ -19,7 +19,8 @@ import { LifecycleService } from "./modules/lifecycle/lifecycle.service.js";
 import { mediaRouter } from "./modules/media/media.routes.js";
 import { MediaService } from "./modules/media/media.service.js";
 import type { ObjectStorage } from "./modules/media/storage.js";
-import { reportsRouter } from "./modules/reports/reports.routes.js";
+import { ExportService } from "./modules/reports/export.service.js";
+import { exportRouter, reportsRouter } from "./modules/reports/reports.routes.js";
 import { ReportsService } from "./modules/reports/reports.service.js";
 import { toolsRouter } from "./modules/tools/tools.routes.js";
 import { ToolsService } from "./modules/tools/tools.service.js";
@@ -95,6 +96,7 @@ export function createApp(
     app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma)));
     app.use("/api/transfers", requireAuth, transfersRouter(new TransfersService(prisma)));
     app.use("/api/lifecycle-events", requireAuth, lifecycleRouter(new LifecycleService(prisma)));
+    app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(prisma, deps.storage)));
     app.use("/api/reports", requireAuth, reportsRouter(new ReportsService(prisma, env.REPORTS_TZ ?? "UTC")));
     if (deps.storage) {
       const media = new MediaService(prisma, deps.storage, {

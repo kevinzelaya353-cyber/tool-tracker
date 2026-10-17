@@ -10,13 +10,13 @@ import { Card } from "@/components/ui/Card";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
-import { SelectField } from "@/components/ui/SelectField";
+import { SelectField, type CreateOption } from "@/components/ui/SelectField";
 import { Stepper } from "@/components/ui/Stepper";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { PhotoPicker } from "@/features/camera/PhotoPicker";
 import { QrScanner } from "@/features/camera/QrScanner";
-import { useLocations, useUsers, useVehicles } from "@/features/catalog/api";
+import { useCreateLocation, useCreateVehicle, useLocations, useUsers, useVehicles } from "@/features/catalog/api";
 import { useToolsAtLocation } from "@/features/tools/api";
 import { useCreateTransfer } from "@/features/transfers/api";
 import { formatDateTime } from "@/lib/format";
@@ -29,11 +29,13 @@ export default function NewTransferScreen() {
   const styles = useStyles();
   const { colors, font } = useTheme();
   const params = useLocalSearchParams<{ fromLocationId?: string; toolId?: string }>();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const locations = useLocations();
   const users = useUsers();
   const vehicles = useVehicles();
   const create = useCreateTransfer();
+  const createLocation = useCreateLocation();
+  const createVehicle = useCreateVehicle();
 
   const [step, setStep] = useState(0);
   const [fromId, setFromId] = useState(params.fromLocationId);
@@ -119,6 +121,24 @@ export default function NewTransferScreen() {
     label: l.name,
     description: l.type === "BODEGA" ? "Bodega" : "Proyecto",
   }));
+  // Quien administra catálogos puede registrar un proyecto o vehículo nuevo sin salir del traslado.
+  const canCatalog = can("catalog:write");
+  const newProject: CreateOption | undefined = canCatalog
+    ? {
+        noun: "proyecto",
+        detailLabel: "Dirección o ubicación (opcional)",
+        onCreate: async (name, address) => (await createLocation.mutateAsync({ name, type: "PROYECTO", address })).id,
+      }
+    : undefined;
+  const newVehicle: CreateOption | undefined = canCatalog
+    ? {
+        noun: "vehículo",
+        detailLabel: "Descripción (opcional)",
+        onCreate: async (plate, description) => (await createVehicle.mutateAsync({ plate, description })).id,
+      }
+    : undefined;
+  const cancel = () => (router.canGoBack() ? router.back() : router.replace("/transfers"));
+
   const userOptions = (users.data ?? []).map((u) => ({ value: u.id, label: u.name }));
   const personName = (id?: string) => users.data?.find((u) => u.id === id)?.name ?? "—";
 
@@ -126,11 +146,13 @@ export default function NewTransferScreen() {
     <Screen
       footer={
         <View style={styles.footer}>
-          {step > 0 ? (
-            <View style={styles.flex}>
+          <View style={styles.flex}>
+            {step > 0 ? (
               <Button title="Atrás" variant="secondary" onPress={() => setStep(step - 1)} />
-            </View>
-          ) : null}
+            ) : (
+              <Button title="Cancelar" variant="secondary" onPress={cancel} />
+            )}
+          </View>
           <View style={styles.flex2}>
             {step < STEPS.length - 1 ? (
               <Button title="Siguiente" disabled={!canNext} onPress={() => setStep(step + 1)} />
@@ -161,6 +183,7 @@ export default function NewTransferScreen() {
               if (v === toId) setToId(undefined);
             }}
             options={locationOptions}
+            create={newProject}
           />
           <View style={styles.arrow}>
             <Ionicons name="arrow-down" size={22} color={colors.primaryDark} />
@@ -170,6 +193,7 @@ export default function NewTransferScreen() {
             value={toId}
             onChange={setToId}
             options={locationOptions.filter((o) => o.value !== fromId)}
+            create={newProject}
           />
         </>
       ) : null}
@@ -222,6 +246,7 @@ export default function NewTransferScreen() {
               { value: NO_VEHICLE, label: "Sin vehículo / a pie" },
               ...(vehicles.data ?? []).map((v) => ({ value: v.id, label: v.plate, description: v.description ?? undefined })),
             ]}
+            create={newVehicle}
           />
           <DateTimeField label="Fecha y hora del movimiento" value={movedAt} onChange={setMovedAt} />
           <TextField label="Observaciones (opcional)" value={notes} onChangeText={setNotes} multiline maxLength={500} />

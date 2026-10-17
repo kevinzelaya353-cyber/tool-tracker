@@ -83,6 +83,8 @@ interface RequestOptions {
   body?: unknown;
   form?: FormData;
   auth?: boolean;
+  /** Devuelve el cuerpo como bytes (descargas de archivos) en lugar de JSON. */
+  binary?: boolean;
 }
 
 function withQuery(path: string, query?: Query) {
@@ -122,6 +124,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}, retry 
   }
 
   if (res.status === 204) return undefined as T;
+  if (opts.binary && res.ok) return (await res.arrayBuffer()) as T;
   const data = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
   if (!res.ok) {
     throw new ApiError(
@@ -141,4 +144,5 @@ export const api = {
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body }),
   del: (path: string) => request<void>(path, { method: "DELETE" }),
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", form }),
+  download: (path: string) => request<ArrayBuffer>(path, { binary: true }),
 };

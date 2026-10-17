@@ -6,6 +6,7 @@ import { HBarChart } from "@/components/charts/HBarChart";
 import { StackedBarChart } from "@/components/charts/StackedBarChart";
 import { StatTile } from "@/components/charts/StatTile";
 import { StatusBadge } from "@/components/domain/StatusBadge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
@@ -20,6 +21,8 @@ import {
   useSpendOverTime,
   type Preset,
 } from "@/features/reports/api";
+import { exportInventoryExcel } from "@/features/reports/export";
+import { notify } from "@/lib/dialogs";
 import { formatDate, formatMoney } from "@/lib/format";
 import { space, makeStyles, useTheme } from "@/theme";
 
@@ -28,6 +31,7 @@ export default function ReportsScreen() {
   const { font, chart } = useTheme();
   const [preset, setPreset] = useState<Preset>("12m");
   const [showTable, setShowTable] = useState(false);
+  const [exporting, setExporting] = useState(false);
   // Memo: el rango incluye "ahora"; recalcularlo en cada render cambiaría la query key sin parar.
   const { range, granularity } = useMemo(() => presetRange(preset), [preset]);
   const spendSeries = [
@@ -48,12 +52,32 @@ export default function ReportsScreen() {
     void losses.refetch();
   };
 
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      await exportInventoryExcel();
+    } catch (e) {
+      await notify("No se pudo exportar", e instanceof Error ? e.message : "Error inesperado");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <ScrollView
       style={styles.root}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
     >
+      <Button
+        title="Exportar inventario a Excel"
+        icon="download-outline"
+        variant="secondary"
+        loading={exporting}
+        onPress={exportExcel}
+      />
+      <Text style={font.small}>Una pestaña por proyecto y bodega, con la foto más reciente de cada herramienta.</Text>
+
       {/* Totales históricos (no dependen del periodo) */}
       <ErrorBanner error={summary.error} />
       <View style={styles.tiles}>

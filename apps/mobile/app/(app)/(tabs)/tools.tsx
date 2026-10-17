@@ -5,7 +5,10 @@ import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInp
 import { TOOL_STATUS, TOOL_STATUS_LABEL, type ToolStatus } from "@tt/shared";
 import { ToolCard } from "@/components/domain/ToolCard";
 import { Chip } from "@/components/ui/Chip";
+import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { useLocations } from "@/features/catalog/api";
 import { useToolsInfinite } from "@/features/tools/api";
 import { useDebounced } from "@/lib/useDebounced";
 import { radius, space, makeStyles, useTheme } from "@/theme";
@@ -13,16 +16,22 @@ import { radius, space, makeStyles, useTheme } from "@/theme";
 export default function ToolsScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
-  const params = useLocalSearchParams<{ status?: ToolStatus }>();
+  const { can } = useAuth();
+  const params = useLocalSearchParams<{ status?: ToolStatus; locationId?: string }>();
   const [status, setStatus] = useState<ToolStatus | undefined>(params.status);
+  const [locationId, setLocationId] = useState<string | undefined>(params.locationId);
   const [q, setQ] = useState("");
-  const query = useToolsInfinite({ status, q: useDebounced(q.trim()) || undefined });
+  const query = useToolsInfinite({ status, locationId, q: useDebounced(q.trim()) || undefined });
+  const location = useLocations().data?.find((l) => l.id === locationId);
   const tools = query.data?.pages.flatMap((p) => p.data) ?? [];
 
-  // El dashboard navega aquí con ?status=…
+  // El dashboard navega aquí con ?status=… y la lista de proyectos con ?locationId=…
   useEffect(() => {
     if (params.status) setStatus(params.status);
   }, [params.status]);
+  useEffect(() => {
+    if (params.locationId) setLocationId(params.locationId);
+  }, [params.locationId]);
 
   return (
     <View style={styles.root}>
@@ -43,6 +52,16 @@ export default function ToolsScreen() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          {locationId ? (
+            <Chip
+              label={`${location?.name ?? "Ubicación"}  ✕`}
+              selected
+              onPress={() => {
+                setLocationId(undefined);
+                router.setParams({ locationId: undefined });
+              }}
+            />
+          ) : null}
           <Chip label="Todas" selected={!status} onPress={() => setStatus(undefined)} />
           {TOOL_STATUS.map((s) => (
             <Chip
@@ -72,6 +91,8 @@ export default function ToolsScreen() {
           ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={colors.primary} /> : null}
         />
       )}
+
+      {can("tools:write") ? <Fab onPress={() => router.push("/tool/new")} accessibilityLabel="Agregar herramienta" /> : null}
     </View>
   );
 }
@@ -92,6 +113,6 @@ const useStyles = makeStyles(({ colors }) =>
     },
     input: { flex: 1, fontSize: 15, color: colors.text },
     chips: { gap: space.sm, paddingHorizontal: space.lg },
-    list: { padding: space.lg, gap: space.md },
+    list: { padding: space.lg, gap: space.md, paddingBottom: 96 },
   }),
 );
