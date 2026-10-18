@@ -43,3 +43,18 @@ ALTER TABLE locations
 -- La etapa (entrega/recepción) solo tiene sentido en fotos de traslado.
 ALTER TABLE photos
   ADD CONSTRAINT photos_stage_only_transfer CHECK (stage IS NULL OR transfer_id IS NOT NULL);
+
+-- Traslado con chofer: mientras está en tránsito tiene chofer y aún no tiene llegada.
+ALTER TABLE transfers
+  ADD CONSTRAINT transfers_transit_has_driver
+  CHECK (status <> 'EN_TRANSITO' OR (driver_id IS NOT NULL AND received_at IS NULL AND reception_by IS NULL));
+
+-- Una herramienta en tránsito siempre tiene a alguien a cargo (el chofer).
+ALTER TABLE tools
+  ADD CONSTRAINT tools_transit_has_custodian
+  CHECK (status <> 'EN_TRANSITO' OR current_custodian_id IS NOT NULL);
+
+-- Ubicación de la foto completa (ambas o ninguna) y dentro de rango.
+ALTER TABLE photos
+  ADD CONSTRAINT photos_coords_pair CHECK ((latitude IS NULL) = (longitude IS NULL)),
+  ADD CONSTRAINT photos_coords_range CHECK (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180);

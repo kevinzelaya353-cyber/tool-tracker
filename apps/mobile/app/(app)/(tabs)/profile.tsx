@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 import { confirmAsync } from "@/lib/dialogs";
 import { Button } from "@/components/ui/Button";
@@ -6,9 +7,8 @@ import { Chip } from "@/components/ui/Chip";
 import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useThemePreference, type ThemePreference } from "@/features/theme/ThemeProvider";
+import { ROLE_LABEL } from "@/lib/format";
 import { space, useTheme } from "@/theme";
-
-const ROLE_LABEL = { ADMIN: "Administrador", BODEGUERO: "Bodeguero", SUPERVISOR: "Supervisor de proyecto", LECTOR: "Solo lectura" };
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "system", label: "Sistema" },
@@ -19,14 +19,14 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 export default function ProfileScreen() {
   const { font } = useTheme();
   const { preference, setPreference } = useThemePreference();
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   if (!user) return null;
 
   return (
     <Screen>
       <Card>
         <Text style={font.title}>{user.name}</Text>
-        <Text style={font.body}>{user.email}</Text>
+        <Text style={font.body}>{user.username ?? user.email}</Text>
         <Text style={[font.small, styles.role]}>{ROLE_LABEL[user.role]}</Text>
       </Card>
       <Card>
@@ -38,6 +38,9 @@ export default function ProfileScreen() {
         </View>
         <Text style={font.small}>"Sistema" sigue el modo claro u oscuro del teléfono.</Text>
       </Card>
+      {can("users:manage") ? (
+        <Button title="Usuarios" icon="people-outline" variant="secondary" onPress={() => router.push("/users")} />
+      ) : null}
       <Button
         title="Cerrar sesión"
         icon="log-out-outline"

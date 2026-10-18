@@ -25,4 +25,12 @@ describe("permisos por rol", () => {
     expect(can("SUPERVISOR", "tools:write")).toBe(false);
     expect(can("SUPERVISOR", "catalog:write")).toBe(false);
   });
+
+  it("CHOFER traslada y entrega, pero no da de alta, no reporta eventos ni confirma por otros", () => {
+    expect(can("CHOFER", "transfers:create")).toBe(true);
+    expect(can("CHOFER", "transfers:receive")).toBe(true);
+    expect(can("CHOFER", "transfers:override")).toBe(false);
+    expect(can("CHOFER", "tools:write")).toBe(false);
+    expect(can("CHOFER", "lifecycle:create")).toBe(false);
+  });
 });

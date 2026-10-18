@@ -7,6 +7,9 @@ import { attachPhotos } from "../../lib/tx-helpers.js";
 
 type Ctx = { actorId: string; ip?: string };
 
+/** La app solo muestra las fotos que no se eliminaron desde ella. */
+const VISIBLE_PHOTO = { hiddenAt: null } satisfies Prisma.PhotoWhereInput;
+
 const LIST_INCLUDE = {
   category: { select: { id: true, name: true } },
   currentLocation: { select: { id: true, name: true, type: true } },
@@ -54,7 +57,7 @@ export class ToolsService {
   async get(id: string) {
     const tool = await this.prisma.tool.findUnique({
       where: { id },
-      include: { ...LIST_INCLUDE, photos: { select: { id: true, thumbKey: true, createdAt: true }, take: 10, orderBy: { createdAt: "desc" } } },
+      include: { ...LIST_INCLUDE, photos: { where: VISIBLE_PHOTO, select: { id: true, thumbKey: true, createdAt: true }, take: 10, orderBy: { createdAt: "desc" } } },
     });
     if (!tool) throw AppError.notFound("Herramienta");
     // La app usa availableEvents para mostrar solo las acciones válidas.
@@ -77,7 +80,7 @@ export class ToolsService {
       include: {
         reportedBy: { select: { id: true, name: true } },
         location: { select: { id: true, name: true, type: true } },
-        photos: { select: { id: true, thumbKey: true } },
+        photos: { where: VISIBLE_PHOTO, select: { id: true, thumbKey: true } },
         transfer: {
           select: {
             id: true,
@@ -86,8 +89,9 @@ export class ToolsService {
             toLocation: { select: { id: true, name: true } },
             deliveredBy: { select: { id: true, name: true } },
             receivedBy: { select: { id: true, name: true } },
+            driver: { select: { id: true, name: true } },
             vehicle: { select: { id: true, plate: true } },
-            photos: { select: { id: true, thumbKey: true } },
+            photos: { where: VISIBLE_PHOTO, select: { id: true, thumbKey: true, stage: true } },
           },
         },
       },

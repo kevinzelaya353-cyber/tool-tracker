@@ -1,4 +1,4 @@
-import type { EventType } from "@tt/shared";
+import type { EventType, Role } from "@tt/shared";
 
 // Lempiras por defecto; "es-HN" da el formato local: L 1,234.50.
 const currency = process.env.EXPO_PUBLIC_CURRENCY ?? "HNL";
@@ -20,8 +20,17 @@ export const formatDateUTC = (iso: string) =>
   new Intl.DateTimeFormat("es", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(iso));
 export const formatDateTime = (iso: string | Date) => dateTimeFmt.format(typeof iso === "string" ? new Date(iso) : iso);
 
+export const ROLE_LABEL: Record<Role, string> = {
+  ADMIN: "Administrador",
+  BODEGUERO: "Bodeguero",
+  SUPERVISOR: "Supervisor de proyecto",
+  CHOFER: "Chofer",
+  LECTOR: "Solo lectura",
+};
+
 export const EVENT_LABEL: Record<EventType, string> = {
   PURCHASE: "Compra",
+  DISPATCH: "Salida con chofer",
   TRANSFER: "Traslado",
   MAINTENANCE_START: "Enviada a mantenimiento",
   MAINTENANCE_END: "Mantenimiento finalizado",

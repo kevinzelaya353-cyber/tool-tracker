@@ -5,8 +5,10 @@ import {
   transferCreateSchema,
   transferListQuerySchema,
   transferPhotosSchema,
+  transferReceiveSchema,
   type TransferListQuery,
   type TransferPhotosInput,
+  type TransferReceiveInput,
 } from "@tt/shared";
 import { authorize, currentUser } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
@@ -33,6 +35,19 @@ export function transfersRouter(svc: TransfersService) {
   r.post("/", authorize("transfers:create"), validate("body", transferCreateSchema), async (req, res) => {
     res.status(201).json(await svc.create(res.locals.body, { actorId: currentUser(res).userId, ip: req.ip }));
   });
+
+  // Confirmar la llegada de un traslado con chofer (el servicio decide si el actor puede hacerlo).
+  r.post(
+    "/:id/receive",
+    authorize("transfers:receive"),
+    validate("params", idParams),
+    validate("body", transferReceiveSchema),
+    async (req, res) => {
+      const { id: transferId } = res.locals.params as z.infer<typeof idParams>;
+      const { userId, role } = currentUser(res);
+      res.json(await svc.receive(transferId, res.locals.body as TransferReceiveInput, { actorId: userId, role, ip: req.ip }));
+    },
+  );
 
   r.post(
     "/:id/photos",

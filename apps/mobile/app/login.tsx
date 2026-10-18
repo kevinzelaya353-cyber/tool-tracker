@@ -19,13 +19,13 @@ export default function LoginScreen() {
   const [error, setError] = useState<unknown>(null);
   const { control, handleSubmit, formState } = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { username: "", password: "" },
   });
 
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
     try {
-      await login(values.email, values.password);
+      await login(values.username, values.password);
     } catch (e) {
       setError(e);
     }
@@ -45,17 +45,17 @@ export default function LoginScreen() {
 
       <Controller
         control={control}
-        name="email"
+        name="username"
         render={({ field, fieldState }) => (
           <TextField
-            label="Correo"
+            label="Usuario"
             value={field.value}
             onChangeText={field.onChange}
             onBlur={field.onBlur}
             error={fieldState.error?.message}
             autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
+            autoCorrect={false}
+            autoComplete="username"
             textContentType="username"
             returnKeyType="next"
             onSubmitEditing={() => passwordRef.current?.focus()}
@@ -68,7 +68,8 @@ export default function LoginScreen() {
         render={({ field, fieldState }) => (
           <TextField
             ref={passwordRef}
-            label="Contraseña"
+            label="PIN"
+            hint="4 dígitos. Si eres administrador, tu contraseña."
             value={field.value}
             onChangeText={field.onChange}
             onBlur={field.onBlur}

@@ -1,7 +1,16 @@
 import type { PhotoStage, Prisma, PrismaClient } from "@prisma/client";
 import ExcelJS from "exceljs";
-import { TOOL_STATUS, TOOL_STATUS_LABEL, type EventType, type ToolStatus } from "@tt/shared";
+import {
+  ITEM_OUTCOME,
+  TOOL_STATUS,
+  TOOL_STATUS_LABEL,
+  type EventType,
+  type ItemOutcome,
+  type ReceptionMethod,
+  type ToolStatus,
+} from "@tt/shared";
 import type { ObjectStorage } from "../media/storage.js";
+import { photoDistances } from "../../lib/geo.js";
 
 const MONEY_FMT = '"L" #,##0.00';
 const DATE_FMT = "dd/mm/yyyy";
@@ -24,6 +33,7 @@ type Tone = { strong: string; font: string; tint: string };
 export const STATUS_TONE: Record<ToolStatus, Tone> = {
   BODEGA: { strong: "FF2E7D32", font: "FFFFFFFF", tint: "FFE8F5E9" }, // verde: disponible, en buen estado
   EN_PROYECTO: { strong: "FF1565C0", font: "FFFFFFFF", tint: "FFE3F2FD" }, // azul: en uso
+  EN_TRANSITO: { strong: "FF00838F", font: "FFFFFFFF", tint: "FFE0F7FA" }, // turquesa: en el camión
   EN_MANTENIMIENTO: { strong: "FFF9A825", font: "FF3E2723", tint: "FFFFF8E1" }, // amarillo
   DANADA: { strong: "FFE65100", font: "FFFFFFFF", tint: "FFFFF3E0" }, // naranja
   EXTRAVIADA: { strong: "FFC62828", font: "FFFFFFFF", tint: "FFFFEBEE" }, // rojo
@@ -33,6 +43,7 @@ export const STATUS_TONE: Record<ToolStatus, Tone> = {
 /** Movimientos del historial coloreados según el estado al que llevan (los traslados no se colorean). */
 const EVENT_TONE: Partial<Record<EventType, Tone>> = {
   PURCHASE: STATUS_TONE.BODEGA,
+  DISPATCH: STATUS_TONE.EN_TRANSITO,
   MAINTENANCE_START: STATUS_TONE.EN_MANTENIMIENTO,
   MAINTENANCE_END: STATUS_TONE.BODEGA,
   DAMAGE: STATUS_TONE.DANADA,
@@ -47,6 +58,7 @@ const GRID: Partial<ExcelJS.Borders> = { top: THIN, left: THIN, bottom: THIN, ri
 
 const EVENT_LABEL: Record<EventType, string> = {
   PURCHASE: "Alta (compra)",
+  DISPATCH: "Salida con chofer",
   TRANSFER: "Traslado",
   MAINTENANCE_START: "Enviada a mantenimiento",
   MAINTENANCE_END: "Mantenimiento finalizado",
@@ -69,6 +81,30 @@ const COLUMNS: Partial<ExcelJS.Column>[] = [
   { header: "Proveedor", key: "supplier", width: 20 },
   { header: "Foto", key: "photo", width: 13 },
 ];
+const RECEPTION_LABEL: Record<ReceptionMethod, string> = {
+  SESION: "en su sesión",
+  PIN: "con su PIN en otro teléfono",
+  SUPERVISION: "por un supervisor",
+};
+
+/** Singular y plural de cada resultado: "1 llegó bien", "2 llegaron bien". */
+const OUTCOME_TEXT: Record<ItemOutcome, [string, string]> = {
+  RECIBIDA: ["llegó bien", "llegaron bien"],
+  DANADA: ["llegó dañada", "llegaron dañadas"],
+  NO_LLEGO: ["no llegó", "no llegaron"],
+};
+
+/** "2 llegaron bien, 1 no llegó" a partir del resultado de cada herramienta. */
+export function outcomeSummary(outcomes: (ItemOutcome | null)[]): string {
+  return ITEM_OUTCOME.map((o) => [o, outcomes.filter((x) => x === o).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([o, n]) => `${n} ${OUTCOME_TEXT[o][n === 1 ? 0 : 1]}`)
+    .join(", ");
+}
+
+/** Horas en camino a partir de las cuales un traslado se marca en rojo. */
+export const TRANSIT_ALERT_HOURS = 24;
+
 const PHOTO_COL = COLUMNS.length - 1; // índice 0-based de la columna "Foto"
 const STATUS_COL = COLUMNS.findIndex((c) => c.key === "status") + 1; // 1-based, igual en "Herramientas"
 
@@ -141,6 +177,156 @@ function gridTable(ws: ExcelJS.Worksheet, from: number, to: number, cols = ws.co
 }
 
 const link = (url: string | null, text: string): ExcelJS.CellValue => (url ? { text, hyperlink: url } : "");
+/**
+ * ExcelJS escribe las fechas en UTC: se pasan a la hora local de la zona de reportes
+ * para que la celda muestre la hora que vio quien registró el movimiento.
+ */
+export function wallClock(d: Date, tz: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(d);
+  const p = Object.fromEntries(parts.map((x) => [x.type, Number(x.value)]));
+  return new Date(Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!, d.getUTCMilliseconds()));
+}
+
+/** "sábado, 18 de octubre de 2026" en la zona de reportes. */
+function dayLabel(d: Date, tz: string): string {
+  const s = new Intl.DateTimeFormat("es-HN", { timeZone: tz, weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(d);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Una fila de la bitácora: lo que pasó, cuándo y quién lo registró. */
+export interface LogEntry {
+  at: Date;
+  recordedAt: Date;
+  by: string;
+  kind: string;
+  tools: string;
+  from: string;
+  to: string;
+  people: string;
+  notes: string;
+  photos: number;
+  tone?: Tone;
+}
+
+type LogTool = {
+  code: string;
+  events: {
+    type: EventType;
+    occurredAt: Date;
+    createdAt: Date;
+    description: string | null;
+    location: { name: string } | null;
+    reportedBy: { name: string };
+    photos: unknown[];
+    transfer: unknown;
+  }[];
+};
+type LogTransfer = {
+  movedAt: Date;
+  createdAt: Date;
+  createdBy: { name: string };
+  driver: { name: string } | null;
+  receivedAt: Date | null;
+  receptionRecordedAt: Date | null;
+  receptionBy: { name: string } | null;
+  receptionMethod: ReceptionMethod | null;
+  receptionNotes: string | null;
+  fromLocation: { name: string };
+  toLocation: { name: string };
+  deliveredBy: { name: string };
+  receivedBy: { name: string };
+  notes: string | null;
+  photos: { stage: string | null }[];
+  items: { outcome: ItemOutcome | null; tool: { code: string } }[];
+};
+
+/**
+ * Todos los movimientos de todos los usuarios en una sola línea de tiempo, del más antiguo al más reciente.
+ * Un traslado es una sola entrada aunque lleve varias herramientas; con chofer son dos: la salida y la
+ * recepción (cada una con su hora y quien la registró). El resto de eventos, una por herramienta.
+ */
+export function bitacoraEntries(tools: LogTool[], transfers: LogTransfer[]): LogEntry[] {
+  const entries: LogEntry[] = [];
+  for (const tr of transfers) {
+    const codes = tr.items.map((i) => i.tool.code).join(", ");
+    const delivery = tr.photos.filter((p) => p.stage !== "RECEPCION").length;
+    const reception = tr.photos.length - delivery;
+    if (!tr.driver) {
+      entries.push({
+        at: tr.movedAt,
+        recordedAt: tr.createdAt,
+        by: tr.createdBy.name,
+        kind: EVENT_LABEL.TRANSFER,
+        tools: codes,
+        from: tr.fromLocation.name,
+        to: tr.toLocation.name,
+        people: `${tr.deliveredBy.name} → ${tr.receivedBy.name}`,
+        notes: tr.notes ?? "",
+        photos: tr.photos.length,
+      });
+      continue;
+    }
+    entries.push({
+      at: tr.movedAt,
+      recordedAt: tr.createdAt,
+      by: tr.createdBy.name,
+      kind: EVENT_LABEL.DISPATCH,
+      tools: codes,
+      from: tr.fromLocation.name,
+      to: tr.toLocation.name,
+      people: `${tr.deliveredBy.name} entregó a ${tr.driver.name} (chofer)`,
+      notes: tr.notes ?? "",
+      photos: delivery,
+      tone: STATUS_TONE.EN_TRANSITO,
+    });
+    if (tr.receivedAt) {
+      const summary = outcomeSummary(tr.items.map((i) => i.outcome));
+      entries.push({
+        at: tr.receivedAt,
+        recordedAt: tr.receptionRecordedAt ?? tr.receivedAt,
+        by: tr.receptionBy?.name ?? tr.receivedBy.name,
+        kind: "Recepción",
+        tools: codes,
+        from: tr.fromLocation.name,
+        to: tr.toLocation.name,
+        people:
+          `${tr.driver.name} entregó a ${tr.receivedBy.name}` +
+          (tr.receptionMethod ? ` (confirmó ${RECEPTION_LABEL[tr.receptionMethod]})` : ""),
+        notes: [summary, tr.receptionNotes].filter(Boolean).join(". "),
+        photos: reception,
+      });
+    }
+  }
+  for (const t of tools) {
+    for (const e of t.events) {
+      if (e.transfer) continue; // ya está como salida, recepción o traslado
+      entries.push({
+        at: e.occurredAt,
+        recordedAt: e.createdAt,
+        by: e.reportedBy.name,
+        kind: EVENT_LABEL[e.type],
+        tools: t.code,
+        from: "",
+        to: e.location?.name ?? "",
+        people: "",
+        notes: e.description ?? "",
+        photos: e.photos.length,
+        tone: EVENT_TONE[e.type],
+      });
+    }
+  }
+  return entries.sort((a, b) => a.at.getTime() - b.at.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+}
+
 const km = (m: number | null) => (m == null ? null : Math.round(m / 100) / 10);
 const duration = (s: number | null) => {
   if (s == null) return "";
@@ -152,6 +338,15 @@ const duration = (s: number | null) => {
 const TRANSFER_SELECT = {
   id: true,
   movedAt: true,
+  createdAt: true,
+  createdBy: { select: { name: true } },
+  driver: { select: { name: true } },
+  status: true,
+  receivedAt: true,
+  receptionRecordedAt: true,
+  receptionBy: { select: { name: true } },
+  receptionMethod: true,
+  receptionNotes: true,
   notes: true,
   routeDistanceM: true,
   routeDurationS: true,
@@ -160,12 +355,18 @@ const TRANSFER_SELECT = {
   deliveredBy: { select: { name: true } },
   receivedBy: { select: { name: true } },
   vehicle: { select: { plate: true } },
-  photos: { select: { storageKey: true, thumbKey: true, stage: true }, orderBy: { createdAt: "asc" } },
+  // Incluye las fotos eliminadas desde la app: el Excel conserva todo el historial.
+  photos: {
+    select: { storageKey: true, thumbKey: true, stage: true, hiddenAt: true, latitude: true, longitude: true },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.TransferSelect;
 
 /**
  * Libro de Excel del inventario:
  * - Resumen por ubicación (con enlace al mapa).
+ * - Bitácora: todos los movimientos de todos los usuarios en orden de fecha y hora.
+ * - En tránsito: lo que va en camino con cada chofer y desde hace cuánto.
  * - Herramientas: todas, con su foto.
  * - Historial: por herramienta, cada movimiento con fecha, origen → destino, personas y fotos de entrega/recepción.
  * - Traslados: uno por fila, filtrable, con distancia y enlace a la ruta.
@@ -177,6 +378,8 @@ export class ExportService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly storage?: ObjectStorage,
+    /** Zona horaria (IANA) en la que se muestran las horas del libro. */
+    private readonly tz = "UTC",
   ) {}
 
   async inventoryWorkbook(): Promise<Buffer> {
@@ -203,7 +406,7 @@ export class ExportService {
             include: {
               location: { select: { name: true } },
               reportedBy: { select: { name: true } },
-              photos: { select: { storageKey: true, thumbKey: true }, orderBy: { createdAt: "asc" } },
+              photos: { select: { storageKey: true, thumbKey: true, hiddenAt: true }, orderBy: { createdAt: "asc" } },
               transfer: { select: TRANSFER_SELECT },
             },
           },
@@ -211,7 +414,7 @@ export class ExportService {
       }),
       this.prisma.transfer.findMany({
         orderBy: { movedAt: "desc" },
-        select: { ...TRANSFER_SELECT, items: { select: { tool: { select: { code: true } } } } },
+        select: { ...TRANSFER_SELECT, items: { select: { outcome: true, tool: { select: { code: true } } } } },
       }),
     ]);
 
@@ -270,6 +473,76 @@ export class ExportService {
     }
     gridTable(summary, legendHeader.number, summary.rowCount, 2);
 
+    // ---------- Bitácora ----------
+    const log = wb.addWorksheet(sheetName("Bitácora", used));
+    log.columns = [
+      { header: "Fecha y hora", key: "at", width: 18, style: { numFmt: DATETIME_FMT } },
+      { header: "Registrado por", key: "by", width: 20 },
+      { header: "Movimiento", key: "kind", width: 22 },
+      { header: "Herramientas", key: "tools", width: 24 },
+      { header: "Desde", key: "from", width: 22 },
+      { header: "Hacia", key: "to", width: 22 },
+      { header: "Entregó → Recibió", key: "people", width: 28 },
+      { header: "Notas", key: "notes", width: 30 },
+      { header: "Fotos", key: "photos", width: 8 },
+      { header: "Registrado en la app", key: "recordedAt", width: 18, style: { numFmt: DATETIME_FMT } },
+    ];
+    styleHeader(log);
+    const logCols = log.columns.length;
+    let lastDay = "";
+    for (const e of bitacoraEntries(tools, transfers)) {
+      // Franja por día: la bitácora se lee por fecha, no por usuario.
+      const day = dayLabel(e.at, this.tz);
+      if (day !== lastDay) {
+        lastDay = day;
+        const band = log.addRow([day]);
+        log.mergeCells(band.number, 1, band.number, logCols);
+        band.font = { bold: true, size: 12 };
+        band.fill = solid(BAND_FILL);
+        band.height = 22;
+        band.alignment = { vertical: "middle" };
+      }
+      const row = log.addRow({ ...e, at: wallClock(e.at, this.tz), recordedAt: wallClock(e.recordedAt, this.tz), tone: undefined });
+      row.alignment = { vertical: "top", wrapText: true };
+      row.getCell(1).font = { bold: true };
+      if (e.tone) paintRow(row, logCols, e.tone, 3);
+    }
+    gridTable(log, 1, log.rowCount, logCols, { filter: true });
+
+    // ---------- En tránsito ----------
+    const transit = wb.addWorksheet(sheetName("En tránsito", used));
+    transit.columns = [
+      { header: "Salió", key: "movedAt", width: 18, style: { numFmt: DATETIME_FMT } },
+      { header: "Horas en camino", key: "hours", width: 12, style: { numFmt: "0.0" } },
+      { header: "Chofer", key: "driver", width: 20 },
+      { header: "Vehículo", key: "vehicle", width: 11 },
+      { header: "Desde", key: "from", width: 22 },
+      { header: "Hacia", key: "to", width: 22 },
+      { header: "Debe recibir", key: "receiver", width: 20 },
+      { header: "Herramientas", key: "tools", width: 28 },
+    ];
+    styleHeader(transit);
+    const now = Date.now();
+    const pending = transfers.filter((tr) => tr.status === "EN_TRANSITO").sort((a, b) => a.movedAt.getTime() - b.movedAt.getTime());
+    for (const tr of pending) {
+      const hours = (now - tr.movedAt.getTime()) / 3_600_000;
+      const row = transit.addRow({
+        movedAt: wallClock(tr.movedAt, this.tz),
+        hours: Math.round(hours * 10) / 10,
+        driver: tr.driver?.name ?? "",
+        vehicle: tr.vehicle?.plate ?? "",
+        from: tr.fromLocation.name,
+        to: tr.toLocation.name,
+        receiver: tr.receivedBy.name,
+        tools: tr.items.map((i) => i.tool.code).join(", "),
+      });
+      row.alignment = { vertical: "top", wrapText: true };
+      // Más de un día en camino: algo pasó (o nadie confirmó la llegada).
+      if (hours > TRANSIT_ALERT_HOURS) paintRow(row, transit.columns.length, STATUS_TONE.EXTRAVIADA, 2);
+    }
+    if (pending.length === 0) transit.addRow({ movedAt: null, driver: "No hay herramientas en camino." });
+    gridTable(transit, 1, transit.rowCount, transit.columns.length, { filter: pending.length > 0 });
+
     // ---------- Herramientas ----------
     const all = wb.addWorksheet(sheetName("Herramientas", used));
     all.columns = [
@@ -297,7 +570,7 @@ export class ExportService {
         purchaseDate: t.purchaseDate,
         supplier: t.supplier ?? "",
         moves: t.events.filter((e) => e.type === "TRANSFER").length,
-        lastMove: last?.occurredAt ?? null,
+        lastMove: last ? wallClock(last.occurredAt, this.tz) : null,
       });
       row.alignment = { vertical: "middle" };
       paintRow(row, all.columns.length, STATUS_TONE[t.status], STATUS_COL);
@@ -342,19 +615,20 @@ export class ExportService {
         const row = hist.addRow(
           tr
             ? {
-                date: tr.movedAt,
-                kind: EVENT_LABEL.TRANSFER,
+                // La salida y la llegada de un traslado con chofer tienen cada una su hora.
+                date: wallClock(e.occurredAt, this.tz),
+                kind: e.type === "DISPATCH" ? EVENT_LABEL.DISPATCH : tr.driver ? "Llegada (recepción)" : EVENT_LABEL.TRANSFER,
                 from: tr.fromLocation.name,
                 to: tr.toLocation.name,
-                delivered: tr.deliveredBy.name,
-                received: tr.receivedBy.name,
+                delivered: e.type === "TRANSFER" && tr.driver ? tr.driver.name : tr.deliveredBy.name,
+                received: e.type === "DISPATCH" && tr.driver ? `${tr.driver.name} (chofer)` : tr.receivedBy.name,
                 vehicle: tr.vehicle?.plate ?? "",
                 km: km(tr.routeDistanceM),
                 route: link(routeUrl(tr.fromLocation, tr.toLocation), "Ver ruta"),
                 notes: tr.notes ?? "",
               }
             : {
-                date: e.occurredAt,
+                date: wallClock(e.occurredAt, this.tz),
                 kind: EVENT_LABEL[e.type],
                 to: e.location?.name ?? "",
                 delivered: e.reportedBy.name,
@@ -362,12 +636,13 @@ export class ExportService {
               },
         );
         row.alignment = { vertical: "middle", wrapText: true };
-        const tone = tr ? undefined : EVENT_TONE[e.type];
+        const tone = tr && e.type !== "DISPATCH" ? undefined : EVENT_TONE[e.type];
         if (tone) paintRow(row, lastCol, tone, 2);
         // Fotos sin etapa (traslados anteriores o eventos) se muestran como de entrega/evidencia.
         const photos = tr ? tr.photos : e.photos.map((p) => ({ ...p, stage: null as PhotoStage | null }));
-        const delivery = photos.filter((p) => p.stage !== "RECEPCION");
-        const reception = photos.filter((p) => p.stage === "RECEPCION");
+        // Con chofer, la fila de salida lleva las fotos de entrega y la de llegada las de recepción.
+        const delivery = tr?.driver && e.type === "TRANSFER" ? [] : photos.filter((p) => p.stage !== "RECEPCION");
+        const reception = tr?.driver && e.type === "DISPATCH" ? [] : photos.filter((p) => p.stage === "RECEPCION");
         const placed =
           (await this.placeMiniPhotos(wb, hist, row, 10, delivery)) +
           (await this.placeMiniPhotos(wb, hist, row, 11, reception));
@@ -384,31 +659,43 @@ export class ExportService {
       { header: "Desde", key: "from", width: 24 },
       { header: "Hacia", key: "to", width: 24 },
       { header: "Herramientas", key: "tools", width: 28 },
+      { header: "Estado", key: "status", width: 13 },
       { header: "Entregó", key: "delivered", width: 20 },
+      { header: "Chofer", key: "driver", width: 18 },
       { header: "Recibió", key: "received", width: 20 },
+      { header: "Llegada", key: "receivedAt", width: 17, style: { numFmt: DATETIME_FMT } },
+      { header: "Resultado", key: "outcome", width: 24 },
       { header: "Vehículo", key: "vehicle", width: 11 },
       { header: "Distancia (km)", key: "km", width: 13, style: { numFmt: "0.0" } },
       { header: "Duración aprox.", key: "duration", width: 14 },
       { header: "Ruta", key: "route", width: 12 },
       { header: "Fotos", key: "photos", width: 8 },
+      { header: "Foto de recepción a (m) del destino", key: "receptionM", width: 16 },
       { header: "Notas", key: "notes", width: 30 },
     ];
     styleHeader(tws);
     for (const tr of transfers) {
-      tws.addRow({
-        date: tr.movedAt,
+      const row = tws.addRow({
+        date: wallClock(tr.movedAt, this.tz),
         from: tr.fromLocation.name,
         to: tr.toLocation.name,
         tools: tr.items.map((i) => i.tool.code).join(", "),
+        status: tr.status === "EN_TRANSITO" ? "En tránsito" : "Recibido",
         delivered: tr.deliveredBy.name,
+        driver: tr.driver?.name ?? "",
         received: tr.receivedBy.name,
+        receivedAt: tr.receivedAt ? wallClock(tr.receivedAt, this.tz) : null,
+        outcome: outcomeSummary(tr.items.map((i) => i.outcome)),
         vehicle: tr.vehicle?.plate ?? "",
         km: km(tr.routeDistanceM),
         duration: duration(tr.routeDurationS),
         route: link(routeUrl(tr.fromLocation, tr.toLocation), "Ver ruta"),
         photos: tr.photos.length,
-        notes: tr.notes ?? "",
-      }).alignment = { vertical: "top", wrapText: true };
+        receptionM: photoDistances(tr.photos, tr.toLocation, tr.toLocation).receptionM,
+        notes: [tr.notes, tr.receptionNotes].filter(Boolean).join(" · "),
+      });
+      row.alignment = { vertical: "top", wrapText: true };
+      if (tr.status === "EN_TRANSITO") paintRow(row, tws.columns.length, STATUS_TONE.EN_TRANSITO, 5);
     }
     gridTable(tws, 1, tws.rowCount, tws.columns.length, { filter: true });
 
@@ -478,7 +765,7 @@ export class ExportService {
     ws: ExcelJS.Worksheet,
     row: ExcelJS.Row,
     col: number,
-    photos: { storageKey: string; thumbKey: string | null }[],
+    photos: { storageKey: string; thumbKey: string | null; hiddenAt: Date | null }[],
   ): Promise<number> {
     if (!photos.length || !this.storage) return 0;
     const colPx = PHOTOS_COL_WIDTH * 7 + 5; // ancho aproximado de la columna en píxeles
@@ -493,7 +780,11 @@ export class ExportService {
       });
       placed++;
     }
-    if (photos.length > PHOTOS_PER_CELL) row.getCell(col + 1).note = `${photos.length} fotos; se muestran ${PHOTOS_PER_CELL}.`;
+    const notes: string[] = [];
+    if (photos.length > PHOTOS_PER_CELL) notes.push(`${photos.length} fotos; se muestran ${PHOTOS_PER_CELL}.`);
+    const hidden = photos.filter((p) => p.hiddenAt).length;
+    if (hidden) notes.push(`${hidden} eliminada(s) de la app; se conservan aquí como historial.`);
+    if (notes.length) row.getCell(col + 1).note = notes.join("\n");
     return placed;
   }
 
@@ -520,6 +811,7 @@ export class ExportService {
     if (pending.length === 0) return keys;
     const photos = await this.prisma.photo.findMany({
       where: {
+        hiddenAt: null, // la miniatura de la herramienta sale de las fotos que siguen en la app
         OR: [
           { toolId: { in: pending } },
           { lifecycleEvent: { toolId: { in: pending } } },

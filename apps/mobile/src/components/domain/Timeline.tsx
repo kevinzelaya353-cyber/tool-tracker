@@ -9,6 +9,7 @@ import { PhotoStrip } from "./PhotoStrip";
 
 const ICON: Record<EventType, ComponentProps<typeof Ionicons>["name"]> = {
   PURCHASE: "cart-outline",
+  DISPATCH: "car-outline",
   TRANSFER: "swap-horizontal",
   MAINTENANCE_START: "build-outline",
   MAINTENANCE_END: "checkmark-done-outline",
@@ -26,7 +27,13 @@ export function Timeline({ events }: { events: HistoryEvent[] }) {
     <View>
       {events.map((e, i) => {
         const c = statusColors[e.toStatus];
-        const photos = [...e.photos, ...(e.transfer?.photos ?? [])].map((p) => p.id);
+        // Con chofer, la salida muestra las fotos de entrega y la llegada las de recepción.
+        const driver = e.transfer?.driver;
+        const transferPhotos = (e.transfer?.photos ?? []).filter((p) =>
+          !driver ? true : e.type === "DISPATCH" ? p.stage !== "RECEPCION" : p.stage === "RECEPCION",
+        );
+        const photos = [...e.photos, ...transferPhotos].map((p) => p.id);
+        const title = driver && e.type === "TRANSFER" ? "Llegada (recepción)" : EVENT_LABEL[e.type];
         return (
           <View key={e.id} style={styles.row}>
             <View style={styles.rail}>
@@ -36,7 +43,7 @@ export function Timeline({ events }: { events: HistoryEvent[] }) {
               {i < events.length - 1 ? <View style={styles.line} /> : null}
             </View>
             <View style={styles.body}>
-              <Text style={styles.title}>{EVENT_LABEL[e.type]}</Text>
+              <Text style={styles.title}>{title}</Text>
               <Text style={font.small}>
                 {formatDateTime(e.occurredAt)} · {e.reportedBy.name}
               </Text>
@@ -47,7 +54,11 @@ export function Timeline({ events }: { events: HistoryEvent[] }) {
                     {e.transfer.fromLocation.name} → {e.transfer.toLocation.name}
                   </Text>
                   <Text style={font.small}>
-                    Entregó {e.transfer.deliveredBy.name} · Recibió {e.transfer.receivedBy.name}
+                    {driver && e.type === "DISPATCH"
+                      ? `Entregó ${e.transfer.deliveredBy.name} · Lleva ${driver.name}`
+                      : driver
+                        ? `Trajo ${driver.name} · Recibió ${e.transfer.receivedBy.name}`
+                        : `Entregó ${e.transfer.deliveredBy.name} · Recibió ${e.transfer.receivedBy.name}`}
                     {e.transfer.vehicle ? ` · Vehículo ${e.transfer.vehicle.plate}` : ""}
                   </Text>
                 </View>

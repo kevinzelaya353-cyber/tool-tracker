@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { TransferCreateInput, TransferPhotosInput } from "@tt/shared";
+import type { TransferCreateInput, TransferPhotosInput, TransferReceiveInput, TransferStatus } from "@tt/shared";
 import { api } from "@/lib/api";
 import type { Page, TransferDetail, TransferSummary } from "@/types/api";
 import { toolKeys } from "../tools/api";
@@ -8,7 +8,21 @@ export const transferKeys = {
   all: ["transfers"] as const,
   list: ["transfers", "list"] as const,
   detail: (id: string) => ["transfers", "detail", id] as const,
+  pending: (filter: PendingFilter) => ["transfers", "pending", filter] as const,
 };
+
+/** "Mi carga" del chofer, lo que espera quien recibe, o todo lo que está en camino. */
+export type PendingFilter = { driverId?: string; receivedById?: string };
+
+export const usePendingTransfers = (filter: PendingFilter, enabled = true) =>
+  useQuery({
+    queryKey: transferKeys.pending(filter),
+    enabled,
+    queryFn: () =>
+      api
+        .get<Page<TransferSummary>>("/api/transfers", { status: "EN_TRANSITO" satisfies TransferStatus, pageSize: 100, ...filter })
+        .then((p) => p.data),
+  });
 
 export const useTransfersInfinite = () =>
   useInfiniteQuery({
@@ -41,6 +55,23 @@ export function useAddTransferPhotos(id: string) {
       qc.setQueryData(transferKeys.detail(id), data);
       qc.invalidateQueries({ queryKey: transferKeys.list });
       qc.invalidateQueries({ queryKey: toolKeys.all }); // historial de cada herramienta
+    },
+  });
+}
+
+/** El payload usa fecha como string ISO; la API la convierte. */
+export type ReceivePayload = Omit<TransferReceiveInput, "receivedAt"> & { receivedAt: string };
+
+/** Confirma la llegada de un traslado con chofer (lista de verificación + fotos, y PIN si no es quien recibe). */
+export function useReceiveTransfer(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReceivePayload) => api.post<TransferDetail>(`/api/transfers/${id}/receive`, input),
+    onSuccess: (data) => {
+      qc.setQueryData(transferKeys.detail(id), data);
+      qc.invalidateQueries({ queryKey: transferKeys.all });
+      qc.invalidateQueries({ queryKey: toolKeys.all });
+      qc.invalidateQueries({ queryKey: ["reports", "summary"] });
     },
   });
 }

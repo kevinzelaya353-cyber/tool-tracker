@@ -56,7 +56,7 @@ describe("seguridad (integración)", () => {
     it("un rol no puede escalar privilegios", async () => {
       // BODEGUERO no gestiona usuarios ni lee auditoría.
       expect((await as(base.bodeguero).patch(`/api/users/${base.bodeguero.id}`, { role: "ADMIN" })).status).toBe(403);
-      expect((await as(base.bodeguero).post("/api/users", { name: "x", email: "x@x.com", password: "Segura-12345", role: "ADMIN" })).status).toBe(403);
+      expect((await as(base.bodeguero).post("/api/users", { name: "x", username: "x-admin", password: "Segura-12345", role: "ADMIN" })).status).toBe(403);
       expect((await as(base.bodeguero).get("/api/audit")).status).toBe(403);
       // LECTOR no escribe catálogos.
       expect((await as(base.lector).post("/api/locations", { name: "Obra X", type: "PROYECTO" })).status).toBe(403);
@@ -67,15 +67,17 @@ describe("seguridad (integración)", () => {
       expect((await as(base.admin).patch(`/api/users/${base.admin.id}`, { role: "LECTOR" })).body.error.code).toBe("SELF_LOCKOUT");
 
       // Con un segundo admin: degradar al otro funciona hasta que quede uno.
-      const res = await as(base.admin).post("/api/users", { name: "Admin 2", email: "admin2@test.local", password: "Segura-12345", role: "ADMIN" });
+      const res = await as(base.admin).post("/api/users", { name: "Admin 2", username: "admin2", password: "Segura-12345", role: "ADMIN" });
       expect(res.status).toBe(201);
-      expect((await as(base.admin).patch(`/api/users/${res.body.id}`, { role: "LECTOR" })).status).toBe(200);
+      // Al dejar de ser admin necesita un PIN: la contraseña de admin no se queda en un rol de campo.
+      expect((await as(base.admin).patch(`/api/users/${res.body.id}`, { role: "LECTOR" })).body.error.code).toBe("CREDENTIAL_REQUIRED");
+      expect((await as(base.admin).patch(`/api/users/${res.body.id}`, { role: "LECTOR", password: "4829" })).status).toBe(200);
     });
 
-    it("SUPERVISOR solo ve nombre y rol de los usuarios (sin correos)", async () => {
+    it("SUPERVISOR solo ve nombre, rol y vehículo habitual de los usuarios (sin correos ni usuarios)", async () => {
       const res = await as(base.supervisor).get("/api/users");
       expect(res.status).toBe(200);
-      for (const u of res.body) expect(Object.keys(u).sort()).toEqual(["id", "name", "role"]);
+      for (const u of res.body) expect(Object.keys(u).sort()).toEqual(["defaultVehicleId", "id", "name", "role"]);
     });
 
     it("BODEGUERO registra personas sin acceso; SUPERVISOR no puede", async () => {
@@ -208,8 +210,8 @@ describe("seguridad (integración)", () => {
 
   describe("auditoría", () => {
     it("nunca guarda contraseñas en el log", async () => {
-      await as(base.admin).post("/api/users", { name: "Nuevo", email: "nuevo@test.local", password: "Secreta-98765", role: "LECTOR" });
-      await as(base.admin).patch(`/api/users/${base.lector.id}`, { password: "OtraSecreta-1234" });
+      await as(base.admin).post("/api/users", { name: "Nuevo", username: "nuevo", password: "Secreta-98765", role: "ADMIN" });
+      await as(base.admin).patch(`/api/users/${base.admin.id}`, { password: "OtraSecreta-1234" });
       const logs = await prisma.auditLog.findMany({ where: { entity: "user" } });
       const dump = JSON.stringify(logs.map((l) => l.diff));
       expect(dump).not.toContain("Secreta-98765");

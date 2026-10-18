@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/Button";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 import { discardPhoto, uploadPhotos, type LocalImage } from "../media/api";
 import { compressImage } from "./compress";
+import { currentSpot, type PhotoSpot } from "./photoLocation";
 import { MultiPhotoCapture } from "./MultiPhotoCapture";
 
 const MAX_PHOTOS = 20; // límite de photoIds por traslado/evento en la API
 const BATCH = 5; // límite de archivos por petición en la API
 
-type Item = LocalImage & { key: string; status: "uploading" | "done" | "error"; id?: string };
+type Item = LocalImage & { key: string; status: "uploading" | "done" | "error"; id?: string; spot?: Promise<PhotoSpot | null> };
 
 interface Props {
   label?: string;
@@ -44,7 +45,7 @@ export function PhotoPicker({ label = "Evidencia fotográfica", hint, max = MAX_
 
   const upload = async (batch: Item[]) => {
     try {
-      const res = await uploadPhotos(batch);
+      const res = await uploadPhotos(batch, await batch[0]?.spot);
       setItems((all) =>
         all.map((it) => {
           const idx = batch.findIndex((b) => b.key === it.key);
@@ -57,9 +58,12 @@ export function PhotoPicker({ label = "Evidencia fotográfica", hint, max = MAX_
     }
   };
 
-  const add = (images: LocalImage[]) => {
+  /** `atHere`: recién tomadas con la cámara (de la galería pudieron tomarse en otro lugar). */
+  const add = (images: LocalImage[], atHere = true) => {
     setCameraOpen(false);
-    const fresh: Item[] = images.map((img) => ({ ...img, key: `p${counter.current++}`, status: "uploading" }));
+    // Una sola lectura de GPS por tanda: todas se tomaron en el mismo lugar.
+    const spot = atHere ? currentSpot() : undefined;
+    const fresh: Item[] = images.map((img) => ({ ...img, key: `p${counter.current++}`, status: "uploading", spot }));
     setItems((all) => [...all, ...fresh]);
     for (let i = 0; i < fresh.length; i += BATCH) void upload(fresh.slice(i, i + BATCH));
   };
@@ -75,7 +79,7 @@ export function PhotoPicker({ label = "Evidencia fotográfica", hint, max = MAX_
     if (res.canceled) return;
     setPicking(true);
     try {
-      add(await Promise.all(res.assets.slice(0, left).map((a) => compressImage(a))));
+      add(await Promise.all(res.assets.slice(0, left).map((a) => compressImage(a))), false);
     } finally {
       setPicking(false);
     }
@@ -137,7 +141,7 @@ export function PhotoPicker({ label = "Evidencia fotográfica", hint, max = MAX_
         </View>
       ) : null}
 
-      <MultiPhotoCapture visible={cameraOpen} remaining={left} onClose={() => setCameraOpen(false)} onDone={add} />
+      <MultiPhotoCapture visible={cameraOpen} remaining={left} onClose={() => setCameraOpen(false)} onDone={(images) => add(images)} />
     </View>
   );
 }

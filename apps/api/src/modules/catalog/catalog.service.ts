@@ -68,6 +68,11 @@ export class CatalogService {
         if (count > 0) {
           throw AppError.conflict("LOCATION_NOT_EMPTY", `La ubicación aún tiene ${count} herramienta(s) asignada(s)`, { count });
         }
+        // Tampoco si hay herramientas en camino hacia aquí: no tendrían dónde llegar.
+        const incoming = await tx.transfer.count({ where: { toLocationId: id, status: "EN_TRANSITO" } });
+        if (incoming > 0) {
+          throw AppError.conflict("LOCATION_HAS_INCOMING", `Hay ${incoming} traslado(s) en camino hacia esta ubicación`, { incoming });
+        }
       }
 
       const closedAt = input.active === false && input.closedAt === undefined ? new Date() : input.closedAt;

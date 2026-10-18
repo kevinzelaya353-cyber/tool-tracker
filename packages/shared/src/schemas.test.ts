@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { money, transferCreateSchema } from "./schemas.js";
+import { money, pinSchema, transferCreateSchema, userCreateSchema, usernameSchema } from "./schemas.js";
 
 const base = () => ({
   fromLocationId: randomUUID(),
@@ -44,4 +44,40 @@ describe("transferCreateSchema", () => {
 describe("money", () => {
   it.each(["0", "1500", "1499.99"])("acepta %s", (v) => expect(money.safeParse(v).success).toBe(true));
   it.each(["-1", "1.999", "abc", "1e5"])("rechaza %s", (v) => expect(money.safeParse(v).success).toBe(false));
+});
+
+describe("pinSchema", () => {
+  it.each(["4829", "0571", "9305"])("acepta %s", (pin) => {
+    expect(pinSchema.safeParse(pin).success).toBe(true);
+  });
+
+  it.each(["1234", "4321", "0000", "7777", "6789", "1212", "2580", "123", "12345", "12a4", " 482"])("rechaza %s", (pin) => {
+    expect(pinSchema.safeParse(pin).success).toBe(false);
+  });
+});
+
+describe("usernameSchema", () => {
+  it("normaliza a minúsculas y sin espacios", () => {
+    expect(usernameSchema.parse("  Kevin.Z ")).toBe("kevin.z");
+  });
+
+  it.each(["ab", "kevin zelaya", "josé", "-kevin", "a".repeat(31)])("rechaza %s", (u) => {
+    expect(usernameSchema.safeParse(u).success).toBe(false);
+  });
+});
+
+describe("userCreateSchema", () => {
+  const user = { name: "Mario", username: "mario" };
+
+  it("exige PIN a los roles de campo", () => {
+    expect(userCreateSchema.safeParse({ ...user, role: "SUPERVISOR", password: "4829" }).success).toBe(true);
+    const r = userCreateSchema.safeParse({ ...user, role: "SUPERVISOR", password: "Segura-12345" });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.path).toEqual(["password"]);
+  });
+
+  it("exige contraseña completa al administrador", () => {
+    expect(userCreateSchema.safeParse({ ...user, role: "ADMIN", password: "4829" }).success).toBe(false);
+    expect(userCreateSchema.safeParse({ ...user, role: "ADMIN", password: "Segura-12345" }).success).toBe(true);
+  });
 });

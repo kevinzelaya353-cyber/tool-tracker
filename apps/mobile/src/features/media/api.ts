@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Platform } from "react-native";
 import { api } from "@/lib/api";
 import type { UploadedPhoto } from "@/types/api";
+import type { PhotoSpot } from "../camera/photoLocation";
 
 export interface LocalImage {
   uri: string;
@@ -9,9 +10,17 @@ export interface LocalImage {
   height: number;
 }
 
-/** Sube hasta 5 imágenes ya comprimidas (límite por petición de la API). */
-export async function uploadPhotos(images: LocalImage[]) {
+/**
+ * Sube hasta 5 imágenes ya comprimidas (límite por petición de la API). `spot`: dónde estaba el
+ * teléfono al tomarlas; va antes que los archivos para que la API lo lea junto con ellos.
+ */
+export async function uploadPhotos(images: LocalImage[], spot?: PhotoSpot | null) {
   const form = new FormData();
+  if (spot) {
+    form.append("lat", String(spot.lat));
+    form.append("lng", String(spot.lng));
+    if (spot.acc != null) form.append("acc", String(spot.acc));
+  }
   for (const [i, img] of images.entries()) {
     const name = `foto-${i}.jpg`;
     if (Platform.OS === "web") {
@@ -27,6 +36,21 @@ export async function uploadPhotos(images: LocalImage[]) {
 }
 
 export const discardPhoto = (id: string) => api.del(`/api/media/${id}`);
+
+/**
+ * Elimina una foto de la app. Si ya es evidencia de un traslado o evento, la API solo la
+ * oculta: deja de verse aquí pero queda en el historial del Excel.
+ */
+export function useDeletePhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: discardPhoto,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tools"] });
+      qc.invalidateQueries({ queryKey: ["transfers"] });
+    },
+  });
+}
 
 /** URLs firmadas (expiran a los 10 min; se refrescan antes). */
 export const usePhotoUrls = (ids: string[], variant: "thumb" | "full" = "thumb") =>

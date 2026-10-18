@@ -11,10 +11,13 @@ type Transition =
   | { from: readonly ToolStatus[]; to: (dest: LocationType) => ToolStatus };
 
 const TRANSITIONS: Record<Exclude<EventType, "PURCHASE">, Transition> = {
+  // Directo desde el origen, o al confirmar la recepción de un traslado con chofer.
   TRANSFER: {
-    from: ["BODEGA", "EN_PROYECTO"],
+    from: ["BODEGA", "EN_PROYECTO", "EN_TRANSITO"],
     to: (dest) => (dest === "BODEGA" ? "BODEGA" : "EN_PROYECTO"),
   },
+  // Sale con un chofer: no está en ningún lugar hasta que alguien confirma que llegó.
+  DISPATCH: { from: ["BODEGA", "EN_PROYECTO"], to: "EN_TRANSITO" },
   MAINTENANCE_START: { from: ["BODEGA", "EN_PROYECTO", "DANADA"], to: "EN_MANTENIMIENTO" },
   // Al salir de mantenimiento siempre regresa a bodega; nunca directo a un proyecto.
   MAINTENANCE_END: { from: ["EN_MANTENIMIENTO"], to: "BODEGA" },

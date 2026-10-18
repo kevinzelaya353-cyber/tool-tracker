@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
-import { passwordSchema } from "@tt/shared";
+import { passwordSchema, usernameSchema } from "@tt/shared";
 
 const prisma = new PrismaClient();
 
@@ -24,12 +24,16 @@ async function main() {
     throw new Error("Define SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD en apps/api/.env antes de ejecutar el seed");
   }
   passwordSchema.parse(password);
+  const username = usernameSchema.parse(process.env.SEED_ADMIN_USERNAME ?? "admin");
 
+  const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   await prisma.user.upsert({
     where: { email: email.toLowerCase() },
-    update: {},
+    // Un admin creado antes del usuario corto lo recibe aquí; no se toca su contraseña.
+    update: existing?.username ? {} : { username },
     create: {
       name: "Administrador",
+      username,
       email: email.toLowerCase(),
       passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
       role: "ADMIN",
@@ -46,7 +50,7 @@ async function main() {
     await prisma.toolCategory.upsert({ where: { name }, update: {}, create: { name } });
   }
 
-  console.log(`Seed listo: admin ${email}, Bodega principal, ${CATEGORIES.length} categorías`);
+  console.log(`Seed listo: admin ${existing?.username ?? username} (${email}), Bodega principal, ${CATEGORIES.length} categorías`);
 }
 
 main()

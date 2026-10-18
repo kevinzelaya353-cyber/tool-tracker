@@ -9,7 +9,7 @@ type Status = "loading" | "signedOut" | "signedIn";
 interface AuthContextValue {
   status: Status;
   user: SessionUser | null;
-  login(email: string, password: string): Promise<void>;
+  login(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
   can(permission: Permission): boolean;
 }
@@ -42,8 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [signOutLocal]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<TokenPair & { user: SessionUser }>("/api/auth/login", { email, password }, { auth: false });
+  const login = useCallback(async (username: string, password: string) => {
+    const res = await api.post<TokenPair & { user: SessionUser }>("/api/auth/login", { username, password }, { auth: false });
     await session.save(res);
     setUser(res.user);
     setStatus("signedIn");

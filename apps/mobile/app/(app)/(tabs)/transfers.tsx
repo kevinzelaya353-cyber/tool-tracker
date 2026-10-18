@@ -62,6 +62,11 @@ export default function TransfersScreen() {
                     </Text>
                   </View>
                   <Text style={font.small}>{formatDateTime(item.movedAt)}</Text>
+                  {item.status === "EN_TRANSITO" ? (
+                    <Text style={[styles.transit, { color: colors.transit, backgroundColor: colors.transitSoft }]}>
+                      En tránsito · {item.driver?.name ?? "chofer"}
+                    </Text>
+                  ) : null}
                   <Text style={font.small}>
                     {item._count.items} herramienta(s)
                     {item._count.photos ? ` · ${item._count.photos} foto(s)` : ""}
@@ -89,6 +94,7 @@ const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     list: { padding: space.lg, gap: space.md, paddingBottom: 96 },
+    transit: { alignSelf: "flex-start", fontSize: 12, fontWeight: "700", paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: 8 },
     route: { flexDirection: "row", alignItems: "center", gap: space.xs },
     cardRow: { flexDirection: "row", gap: space.md, alignItems: "center" },
     info: { flex: 1, gap: 2 },

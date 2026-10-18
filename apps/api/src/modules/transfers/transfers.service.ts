@@ -1,7 +1,20 @@
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { LocationType, TransferCreateInput, TransferListQuery, TransferPhotosInput } from "@tt/shared";
+import {
+  can,
+  ITEM_OUTCOME,
+  type LocationType,
+  type ReceptionMethod,
+  type Role,
+  type ToolStatus,
+  type TransferCreateInput,
+  type TransferListQuery,
+  type TransferPhotosInput,
+  type TransferReceiveInput,
+} from "@tt/shared";
 import { checkTransfer } from "../../domain/rules.js";
+import { checkCredential } from "../auth/auth.service.js";
+import { photoDistances } from "../../lib/geo.js";
 import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { pageArgs, toPage } from "../../lib/pagination.js";
@@ -11,6 +24,7 @@ import { renderStaticMap, type TileFetcher } from "./static-map.js";
 import { attachPhotos, lockTools } from "../../lib/tx-helpers.js";
 
 type Ctx = { actorId: string; ip?: string };
+type ActorCtx = Ctx & { role: Role };
 
 const DETAIL_INCLUDE = {
   fromLocation: { select: { id: true, name: true, type: true, latitude: true, longitude: true } },
@@ -18,9 +32,16 @@ const DETAIL_INCLUDE = {
   deliveredBy: { select: { id: true, name: true } },
   receivedBy: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
+  driver: { select: { id: true, name: true } },
+  receptionBy: { select: { id: true, name: true } },
   vehicle: { select: { id: true, plate: true, description: true } },
   items: { include: { tool: { select: { id: true, code: true, brand: true, model: true, category: { select: { name: true } } } } } },
-  photos: { select: { id: true, thumbKey: true, stage: true, createdAt: true }, orderBy: { createdAt: "asc" } },
+  // Las eliminadas desde la app no se muestran (siguen en el Excel).
+  photos: {
+    where: { hiddenAt: null },
+    select: { id: true, thumbKey: true, stage: true, createdAt: true, latitude: true, longitude: true, accuracyM: true },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.TransferInclude;
 
 export class TransfersService {
@@ -56,6 +77,9 @@ export class TransfersService {
    * bloquea las herramientas, valida reglas, crea cabecera + ítems + eventos,
    * actualiza estado/ubicación/custodio y asocia las fotos de evidencia.
    * Si una sola herramienta es inválida, no se mueve ninguna.
+   *
+   * Sin chofer, llega al destino en el acto. Con chofer (`driverId`) las herramientas quedan
+   * EN_TRANSITO a cargo del chofer hasta que se confirma la recepción con `receive`.
    */
   async create(input: TransferCreateInput, ctx: Ctx) {
     const toolIds = input.items.map((i) => i.toolId);
@@ -74,11 +98,14 @@ export class TransfersService {
       if (!from) throw AppError.badRequest("INVALID_LOCATION", "Ubicación de origen inexistente");
       if (!to || !to.active) throw AppError.badRequest("INVALID_LOCATION", "El destino no existe o está cerrado");
 
-      const people = await tx.user.findMany({
-        where: { id: { in: [input.deliveredById, input.receivedById] }, active: true },
-        select: { id: true },
-      });
-      if (people.length !== 2) throw AppError.badRequest("INVALID_PERSON", "Quien entrega o recibe no es un usuario activo");
+      const ids = [input.deliveredById, input.receivedById, ...(input.driverId ? [input.driverId] : [])];
+      const people = await tx.user.findMany({ where: { id: { in: ids }, active: true }, select: { id: true } });
+      if (people.length !== new Set(ids).size) {
+        throw AppError.badRequest("INVALID_PERSON", "Quien entrega, recibe o lleva las herramientas no es un usuario activo");
+      }
+      if (input.driverId && input.driverId === input.receivedById) {
+        throw AppError.badRequest("INVALID_PERSON", "El chofer no puede ser quien recibe: la recepción la confirma otra persona");
+      }
 
       if (input.vehicleId) {
         const vehicle = await tx.vehicle.findFirst({ where: { id: input.vehicleId, active: true }, select: { id: true } });
@@ -91,12 +118,15 @@ export class TransfersService {
         fromLocationId: input.fromLocationId,
         destinationType: to.type,
         movedAt: input.movedAt,
+        dispatch: Boolean(input.driverId),
       });
       if (violations.length > 0) {
         throw AppError.conflict("TRANSFER_REJECTED", "Una o más herramientas no se pueden trasladar", violations);
       }
 
-      const newStatus = to.type === "BODEGA" ? "BODEGA" : "EN_PROYECTO";
+      const inTransit = Boolean(input.driverId);
+      const arrived: ToolStatus = to.type === "BODEGA" ? "BODEGA" : "EN_PROYECTO";
+      const newStatus: ToolStatus = inTransit ? "EN_TRANSITO" : arrived;
       const transfer = await tx.transfer.create({
         data: {
           id: input.id,
@@ -104,8 +134,11 @@ export class TransfersService {
           toLocationId: input.toLocationId,
           deliveredById: input.deliveredById,
           receivedById: input.receivedById,
+          driverId: input.driverId,
           vehicleId: input.vehicleId,
           movedAt: input.movedAt,
+          status: inTransit ? "EN_TRANSITO" : "RECIBIDO",
+          receivedAt: inTransit ? null : input.movedAt,
           notes: input.notes,
           ...(route && {
             routeGeometry: route.geometry,
@@ -121,11 +154,12 @@ export class TransfersService {
       await tx.lifecycleEvent.createMany({
         data: toolIds.map((toolId) => ({
           toolId,
-          type: "TRANSFER" as const,
+          type: inTransit ? ("DISPATCH" as const) : ("TRANSFER" as const),
           fromStatus: statusById.get(toolId),
           toStatus: newStatus,
           occurredAt: input.movedAt,
-          locationId: input.toLocationId,
+          // En tránsito no está en ningún lugar.
+          locationId: inTransit ? null : input.toLocationId,
           transferId: transfer.id,
           reportedById: ctx.actorId,
         })),
@@ -135,9 +169,9 @@ export class TransfersService {
         where: { id: { in: toolIds } },
         data: {
           status: newStatus,
-          currentLocationId: input.toLocationId,
-          // En bodega la responsabilidad es de la bodega, no de una persona.
-          currentCustodianId: to.type === "BODEGA" ? null : input.receivedById,
+          currentLocationId: inTransit ? null : input.toLocationId,
+          // En tránsito responde el chofer; en bodega, la bodega (no una persona).
+          currentCustodianId: inTransit ? input.driverId : to.type === "BODEGA" ? null : input.receivedById,
           statusChangedAt: input.movedAt,
         },
       });
@@ -147,7 +181,7 @@ export class TransfersService {
 
       await audit(tx, {
         actorId: ctx.actorId,
-        action: "transfer.create",
+        action: inTransit ? "transfer.dispatch" : "transfer.create",
         entity: "transfer",
         entityId: transfer.id,
         diff: { from: input.fromLocationId, to: input.toLocationId, tools: toolIds, photos: input.photoIds.length + input.receptionPhotoIds.length },
@@ -162,6 +196,9 @@ export class TransfersService {
     const where: Prisma.TransferWhereInput = {
       ...(q.locationId && { OR: [{ fromLocationId: q.locationId }, { toLocationId: q.locationId }] }),
       ...(q.toolId && { items: { some: { toolId: q.toolId } } }),
+      ...(q.status && { status: q.status }),
+      ...(q.driverId && { driverId: q.driverId }),
+      ...(q.receivedById && { receivedById: q.receivedById }),
       ...((q.from || q.to) && { movedAt: { gte: q.from, lte: q.to } }),
     };
     const [total, data] = await Promise.all([
@@ -174,8 +211,9 @@ export class TransfersService {
           toLocation: { select: { id: true, name: true } },
           deliveredBy: { select: { id: true, name: true } },
           receivedBy: { select: { id: true, name: true } },
+          driver: { select: { id: true, name: true } },
           vehicle: { select: { id: true, plate: true } },
-          _count: { select: { items: true, photos: true } },
+          _count: { select: { items: true, photos: { where: { hiddenAt: null } } } },
         },
         ...pageArgs(q),
       }),
@@ -184,6 +222,180 @@ export class TransfersService {
   }
 
   async get(id: string) {
+    const t = await this.findWithRoute(id);
+    return { ...t, photoDistances: photoDistances(t.photos, t.fromLocation, t.toLocation) };
+  }
+
+  /**
+   * Confirma la llegada de un traslado con chofer. Cada herramienta llega bien (al destino),
+   * dañada (al destino y luego DANADA) o no llega (EXTRAVIADA, con el chofer como último responsable).
+   *
+   * La confirma quien debía recibir: desde su sesión, o escribiendo su PIN en el teléfono del
+   * chofer (los fallos cuentan para el bloqueo de su cuenta). Quien tiene `transfers:override`
+   * puede confirmar en su nombre; queda registrado como SUPERVISION.
+   */
+  async receive(id: string, input: TransferReceiveInput, ctx: ActorCtx) {
+    // El PIN se verifica fuera de la transacción: si fuera dentro, el error del PIN incorrecto
+    // revertiría también el contador de intentos y se podría adivinar sin límite.
+    const head = await this.prisma.transfer.findUnique({
+      where: { id },
+      select: { receivedBy: { select: { id: true, name: true, role: true, active: true, passwordHash: true, lockedAt: true } } },
+    });
+    if (!head) throw AppError.notFound("Traslado");
+    const method = await this.receptionMethod(head.receivedBy, input.pin, ctx);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Bloquea el traslado: dos confirmaciones simultáneas no pueden aplicarse ambas.
+      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM transfers WHERE id = ${id}::uuid FOR UPDATE`;
+      if (locked.length === 0) throw AppError.notFound("Traslado");
+      const t = await tx.transfer.findUniqueOrThrow({
+        where: { id },
+        include: {
+          items: { select: { toolId: true } },
+          toLocation: { select: { name: true, type: true } },
+          driver: { select: { name: true } },
+        },
+      });
+      if (t.status !== "EN_TRANSITO") throw AppError.conflict("ALREADY_RECEIVED", "Este traslado ya fue recibido");
+      if (input.receivedAt.getTime() < t.movedAt.getTime()) {
+        throw AppError.badRequest("OUT_OF_ORDER", "La llegada no puede ser anterior a la salida");
+      }
+
+      const expected = new Set(t.items.map((i) => i.toolId));
+      if (input.items.length !== expected.size || input.items.some((i) => !expected.has(i.toolId))) {
+        throw AppError.badRequest("ITEMS_MISMATCH", "Indica el resultado de cada herramienta del traslado, y solo de esas");
+      }
+
+      const tools = await lockTools(tx, [...expected]);
+      const notInTransit = tools.filter((tool) => tool.status !== "EN_TRANSITO");
+      if (notInTransit.length) {
+        throw AppError.conflict(
+          "TRANSFER_REJECTED",
+          "Alguna herramienta ya no está en tránsito",
+          notInTransit.map((tool) => ({ toolId: tool.id, code: "NOT_IN_TRANSIT", message: `${tool.code}: ya no está en tránsito` })),
+        );
+      }
+
+      const arrived: ToolStatus = t.toLocation.type === "BODEGA" ? "BODEGA" : "EN_PROYECTO";
+      const custodian = t.toLocation.type === "BODEGA" ? null : t.receivedById;
+      const at = input.receivedAt;
+      const driverName = t.driver?.name ?? "el chofer";
+
+      for (const item of input.items) {
+        await tx.transferItem.update({
+          where: { transferId_toolId: { transferId: id, toolId: item.toolId } },
+          data: { outcome: item.outcome, receptionNote: item.note },
+        });
+        if (item.outcome === "NO_LLEGO") {
+          // No llegó: queda extraviada y a cargo de quien la llevaba (último responsable).
+          await tx.lifecycleEvent.create({
+            data: {
+              toolId: item.toolId,
+              type: "LOSS",
+              fromStatus: "EN_TRANSITO",
+              toStatus: "EXTRAVIADA",
+              occurredAt: at,
+              description: `No llegó a ${t.toLocation.name}; iba a cargo de ${driverName}. ${item.note ?? ""}`.trim().slice(0, 500),
+              reportedById: ctx.actorId,
+            },
+          });
+          await tx.tool.update({
+            where: { id: item.toolId },
+            data: { status: "EXTRAVIADA", currentLocationId: null, statusChangedAt: at },
+          });
+          continue;
+        }
+        await tx.lifecycleEvent.create({
+          data: {
+            toolId: item.toolId,
+            type: "TRANSFER",
+            fromStatus: "EN_TRANSITO",
+            toStatus: arrived,
+            occurredAt: at,
+            locationId: t.toLocationId,
+            transferId: id,
+            reportedById: ctx.actorId,
+          },
+        });
+        if (item.outcome === "DANADA") {
+          await tx.lifecycleEvent.create({
+            data: {
+              toolId: item.toolId,
+              type: "DAMAGE",
+              fromStatus: arrived,
+              toStatus: "DANADA",
+              occurredAt: at,
+              locationId: t.toLocationId,
+              description: `Llegó dañada a ${t.toLocation.name}: ${item.note ?? ""}`.slice(0, 500),
+              reportedById: ctx.actorId,
+            },
+          });
+        }
+        await tx.tool.update({
+          where: { id: item.toolId },
+          data: {
+            status: item.outcome === "DANADA" ? "DANADA" : arrived,
+            currentLocationId: t.toLocationId,
+            currentCustodianId: custodian,
+            statusChangedAt: at,
+          },
+        });
+      }
+
+      await tx.transfer.update({
+        where: { id },
+        data: {
+          status: "RECIBIDO",
+          receivedAt: at,
+          receptionById: ctx.actorId,
+          receptionMethod: method,
+          receptionNotes: input.notes,
+          receptionRecordedAt: new Date(),
+        },
+      });
+      await attachPhotos(tx, input.photoIds, ctx.actorId, { transferId: id, stage: "RECEPCION" });
+
+      const counts = Object.fromEntries(ITEM_OUTCOME.map((o) => [o, input.items.filter((i) => i.outcome === o).length]));
+      await audit(tx, {
+        actorId: ctx.actorId,
+        action: "transfer.receive",
+        entity: "transfer",
+        entityId: id,
+        diff: { method, receivedBy: t.receivedById, ...counts, photos: input.photoIds.length },
+        ip: ctx.ip,
+      });
+    });
+    return this.get(id);
+  }
+
+  /** Quién puede confirmar: el receptor con su sesión, su PIN en otro teléfono, o un supervisor. */
+  private async receptionMethod(
+    receiver: { id: string; name: string; role: Role; active: boolean; passwordHash: string | null; lockedAt: Date | null },
+    pin: string | undefined,
+    ctx: ActorCtx,
+  ): Promise<ReceptionMethod> {
+    if (ctx.actorId === receiver.id) return "SESION";
+    if (pin) {
+      if (!receiver.active || !receiver.passwordHash) {
+        throw AppError.badRequest("RECEIVER_WITHOUT_PIN", `${receiver.name} no tiene PIN: debe confirmar un supervisor`);
+      }
+      const { valid, locked } = await checkCredential(this.prisma, receiver, pin, ctx.ip);
+      if (locked) {
+        throw new AppError(
+          423,
+          "ACCOUNT_LOCKED",
+          `La cuenta de ${receiver.name} está bloqueada por intentos fallidos. Pide al administrador que la desbloquee.`,
+        );
+      }
+      if (!valid) throw AppError.forbidden(`PIN de ${receiver.name} incorrecto`);
+      await this.prisma.user.update({ where: { id: receiver.id }, data: { failedLogins: 0 } });
+      return "PIN";
+    }
+    if (can(ctx.role, "transfers:override")) return "SUPERVISION";
+    throw AppError.forbidden(`Solo ${receiver.name} puede confirmar la recepción: pídele que escriba su PIN`);
+  }
+
+  private async findWithRoute(id: string) {
     const t = await this.prisma.transfer.findUnique({ where: { id }, include: DETAIL_INCLUDE });
     if (!t) throw AppError.notFound("Traslado");
     if (t.routeGeometry) return t;
@@ -205,7 +417,7 @@ export class TransfersService {
   async mapImage(id: string): Promise<{ url: string | null }> {
     const { storage, tiles, urlTtlSec = 600 } = this.opts;
     if (!storage || !tiles) return { url: null };
-    const t = await this.get(id); // calcula la ruta si faltaba
+    const t = await this.findWithRoute(id); // calcula la ruta si faltaba
     const from = t.fromLocation;
     const to = t.toLocation;
     if (from.latitude == null || from.longitude == null || to.latitude == null || to.longitude == null) return { url: null };
@@ -248,7 +460,7 @@ export class TransfersService {
     await this.prisma.$transaction(async (tx) => {
       const exists = await tx.transfer.count({ where: { id } });
       if (!exists) throw AppError.notFound("Traslado");
-      const already = await tx.photo.count({ where: { transferId: id } });
+      const already = await tx.photo.count({ where: { transferId: id, hiddenAt: null } });
       if (already + input.photoIds.length > 40) {
         throw AppError.badRequest("TOO_MANY_PHOTOS", "Un traslado admite hasta 40 fotos");
       }

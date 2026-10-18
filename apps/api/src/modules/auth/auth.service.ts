@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
 import { ROLE_PERMISSIONS, type LoginInput, type Role } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
@@ -11,17 +11,59 @@ export function hashPassword(password: string) {
   return argon2.hash(password, ARGON2_OPTIONS);
 }
 
+/** Intentos fallidos seguidos antes de bloquear una cuenta con PIN (10.000 combinaciones posibles). */
+export const MAX_FAILED_LOGINS = 5;
+
 export interface SessionUser {
   id: string;
   name: string;
-  email: string;
+  username: string | null;
+  email: string | null;
   role: Role;
   permissions: readonly string[];
 }
 
-export function toSessionUser(u: { id: string; name: string; email: string | null; role: Role }): SessionUser {
-  // Solo quien tiene correo puede iniciar sesión, así que aquí nunca llega null.
-  return { id: u.id, name: u.name, email: u.email ?? "", role: u.role, permissions: ROLE_PERMISSIONS[u.role] };
+type UserRow = { id: string; name: string; username: string | null; email: string | null; role: Role };
+
+type CredentialUser = { id: string; role: Role; active: boolean; passwordHash: string | null; lockedAt: Date | null };
+
+/**
+ * Verifica un PIN o contraseña y cuenta los fallos: al llegar al límite bloquea la cuenta
+ * (solo roles con PIN). Se usa al iniciar sesión y cuando quien recibe un traslado escribe
+ * su PIN en el teléfono del chofer, así ninguno de los dos caminos permite adivinar sin límite.
+ * Bloqueada, ni el PIN correcto vale hasta que un administrador la desbloquee.
+ */
+export async function checkCredential(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  user: CredentialUser,
+  password: string,
+  ip: string | undefined,
+): Promise<{ valid: boolean; locked: boolean }> {
+  const valid = user.passwordHash ? await argon2.verify(user.passwordHash, password).catch(() => false) : false;
+  if (user.lockedAt) return { valid, locked: true };
+  if (valid || !user.active || user.role === "ADMIN") return { valid, locked: false };
+
+  // Incremento atómico: intentos simultáneos no pueden saltarse el límite.
+  const { failedLogins } = await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLogins: { increment: 1 } },
+    select: { failedLogins: true },
+  });
+  if (failedLogins < MAX_FAILED_LOGINS) return { valid, locked: false };
+  await prisma.user.update({ where: { id: user.id }, data: { lockedAt: new Date() } });
+  await audit(prisma, { actorId: null, action: "auth.locked", entity: "user", entityId: user.id, ip });
+  return { valid, locked: true };
+}
+
+export function toSessionUser(u: UserRow): SessionUser {
+  return {
+    id: u.id,
+    name: u.name,
+    username: u.username,
+    email: u.email,
+    role: u.role,
+    permissions: ROLE_PERMISSIONS[u.role],
+  };
 }
 
 export class AuthService {
@@ -35,22 +77,29 @@ export class AuthService {
   ) {}
 
   async login(input: LoginInput, ip: string | undefined): Promise<TokenPair & { user: SessionUser }> {
-    const user = await this.prisma.user.findUnique({ where: { email: input.email } });
+    // Las cuentas creadas antes del usuario corto siguen entrando con su correo.
+    const where = input.username.includes("@") ? { email: input.username } : { username: input.username };
+    const user = await this.prisma.user.findUnique({ where });
     this.dummyHash ??= hashPassword("dummy-password-for-timing-0");
     const hash = user?.passwordHash ?? (await this.dummyHash);
 
-    const valid = await argon2.verify(hash, input.password).catch(() => false);
-    if (!user || !valid || !user.active) {
+    const { valid, locked } = user
+      ? await checkCredential(this.prisma, user, input.password, ip)
+      : { valid: await argon2.verify(hash, input.password).catch(() => false), locked: false };
+    if (!user || !valid || !user.active || locked) {
       await audit(this.prisma, {
         actorId: user?.id ?? null,
         action: "auth.login_failed",
         entity: "user",
         entityId: user?.id ?? null,
-        diff: { reason: !user ? "unknown_email" : !valid ? "bad_password" : "inactive" },
+        diff: { reason: !user ? "unknown_user" : locked ? "locked" : !valid ? "bad_password" : "inactive" },
         ip,
       });
-      // Mismo mensaje para todos los casos.
-      throw AppError.unauthorized("Credenciales inválidas");
+      // Bloqueo con mensaje propio (el usuario necesita saber a quién acudir); el resto, mensaje único.
+      if (locked) {
+        throw new AppError(423, "ACCOUNT_LOCKED", "Cuenta bloqueada por intentos fallidos. Pide al administrador que la desbloquee.");
+      }
+      throw AppError.unauthorized("Usuario o PIN incorrecto");
     }
 
     // needsRehash compara contra los parámetros de coste por defecto (el tipo va en el propio hash).
@@ -61,7 +110,7 @@ export class AuthService {
       });
     }
 
-    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date(), failedLogins: 0 } });
     await audit(this.prisma, { actorId: user.id, action: "auth.login", entity: "user", entityId: user.id, ip });
 
     const pair = await this.tokens.issue({ userId: user.id, role: user.role });

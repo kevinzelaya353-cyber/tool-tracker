@@ -7,6 +7,7 @@ import { TOOL_STATUS_LABEL, resolveTransition } from "@tt/shared";
 import { ToolCard } from "@/components/domain/ToolCard";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
 import { DateTimeField } from "@/components/ui/DateTimeField";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
@@ -52,7 +53,12 @@ export default function NewTransferScreen() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(params.toolId ? [params.toolId] : []));
   const [search, setSearch] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [deliveredById, setDeliveredById] = useState(user?.id);
+  const isDriver = user?.role === "CHOFER";
+  // Con chofer las herramientas quedan en tránsito hasta que quien recibe confirma la llegada.
+  // Si quien registra es chofer, por defecto las lleva él; quien entrega es la persona del origen.
+  const [withDriver, setWithDriver] = useState(isDriver);
+  const [driverId, setDriverId] = useState<string | undefined>(isDriver ? user?.id : undefined);
+  const [deliveredById, setDeliveredById] = useState(isDriver ? undefined : user?.id);
   const [receivedById, setReceivedById] = useState<string>();
   const [vehicleId, setVehicleId] = useState(NO_VEHICLE);
   const [movedAt, setMovedAt] = useState(new Date());
@@ -107,12 +113,12 @@ export default function NewTransferScreen() {
     setScanning(false);
   };
 
-  const canNext = [
-    !!fromId && !!toId && fromId !== toId,
-    selectedTools.length > 0,
-    !!deliveredById && !!receivedById && deliveredById !== receivedById,
-    !uploading,
-  ][step];
+  const custodyOk =
+    !!deliveredById &&
+    !!receivedById &&
+    deliveredById !== receivedById &&
+    (!withDriver || (!!driverId && driverId !== receivedById));
+  const canNext = [!!fromId && !!toId && fromId !== toId, selectedTools.length > 0, custodyOk, !uploading][step];
 
   const submit = () =>
     create.mutate(
@@ -121,12 +127,14 @@ export default function NewTransferScreen() {
         toLocationId: toId!,
         deliveredById: deliveredById!,
         receivedById: receivedById!,
+        driverId: withDriver ? driverId : undefined,
         vehicleId: vehicleId === NO_VEHICLE ? undefined : vehicleId,
         movedAt: movedAt.toISOString(),
         notes: notes.trim() || undefined,
         items: selectedTools.map((t) => ({ toolId: t.id })),
         photoIds,
-        receptionPhotoIds,
+        // Con chofer, las fotos de recepción se toman al confirmar la llegada.
+        receptionPhotoIds: withDriver ? [] : receptionPhotoIds,
       },
       { onSuccess: (t) => router.replace(`/transfer/${t.id}`) },
     );
@@ -160,7 +168,18 @@ export default function NewTransferScreen() {
   const cancel =() => (router.canGoBack() ? router.back() : router.replace("/transfers"));
 
   const userOptions = (users.data ?? []).map((u) => ({ value: u.id, label: u.name }));
+  // Choferes primero en la lista de quién lleva las herramientas.
+  const driverOptions = [...(users.data ?? [])]
+    .sort((a, b) => Number(b.role === "CHOFER") - Number(a.role === "CHOFER"))
+    .map((u) => ({ value: u.id, label: u.name, description: u.role === "CHOFER" ? "Chofer" : undefined }));
   const personName = (id?: string) => users.data?.find((u) => u.id === id)?.name ?? "—";
+  const pickDriver = (id: string) => {
+    setDriverId(id);
+    if (id === receivedById) setReceivedById(undefined);
+    // Su vehículo habitual, si tiene uno asignado.
+    const vehicle = users.data?.find((u) => u.id === id)?.defaultVehicleId;
+    if (vehicle && vehicles.data?.some((v) => v.id === vehicle)) setVehicleId(vehicle);
+  };
 
   return (
     <Screen
@@ -178,7 +197,7 @@ export default function NewTransferScreen() {
               <Button title="Siguiente" disabled={!canNext} onPress={() => setStep(step + 1)} />
             ) : (
               <Button
-                title={uploading ? "Subiendo fotos…" : "Confirmar traslado"}
+                title={uploading ? "Subiendo fotos…" : withDriver ? "Registrar salida" : "Confirmar traslado"}
                 icon="checkmark"
                 disabled={!canNext}
                 loading={create.isPending}
@@ -251,8 +270,23 @@ export default function NewTransferScreen() {
 
       {step === 2 ? (
         <>
+          <View style={styles.mode}>
+            <Text style={font.label}>¿Cómo viaja?</Text>
+            <View style={styles.modeRow}>
+              <Chip label="Lo lleva un chofer" selected={withDriver} onPress={() => setWithDriver(true)} />
+              <Chip label="Entrega directa" selected={!withDriver} onPress={() => setWithDriver(false)} />
+            </View>
+            <Text style={font.small}>
+              {withDriver
+                ? "Quedan en tránsito a cargo del chofer hasta que quien recibe confirme la llegada."
+                : "Llegan al destino en el acto: quien entrega y quien recibe están juntos."}
+            </Text>
+          </View>
+          {withDriver ? (
+            <SelectField label="Chofer (quien las lleva)" value={driverId} onChange={pickDriver} options={driverOptions} />
+          ) : null}
           <SelectField
-            label="Entregado por"
+            label={withDriver ? "Entregado por (en el origen)" : "Entregado por"}
             value={deliveredById}
             onChange={(v) => {
               setDeliveredById(v);
@@ -262,10 +296,10 @@ export default function NewTransferScreen() {
             create={newPerson}
           />
           <SelectField
-            label="Recibido por"
+            label={withDriver ? "Quién recibirá en el destino" : "Recibido por"}
             value={receivedById}
             onChange={setReceivedById}
-            options={userOptions.filter((o) => o.value !== deliveredById)}
+            options={userOptions.filter((o) => o.value !== deliveredById && (!withDriver || o.value !== driverId))}
             create={newPerson}
           />
           <SelectField
@@ -278,7 +312,7 @@ export default function NewTransferScreen() {
             ]}
             create={newVehicle}
           />
-          <DateTimeField label="Fecha y hora del movimiento" value={movedAt} onChange={setMovedAt} />
+          <DateTimeField label={withDriver ? "Fecha y hora de salida" : "Fecha y hora del movimiento"} value={movedAt} onChange={setMovedAt} />
           <TextField label="Observaciones (opcional)" value={notes} onChangeText={setNotes} multiline maxLength={500} />
         </>
       ) : null}
@@ -293,7 +327,8 @@ export default function NewTransferScreen() {
             {selectedTools.length} herramienta(s): {selectedTools.map((t) => t.code).join(", ")}
           </Text>
           <Text style={font.small}>
-            Entrega {personName(deliveredById)} · Recibe {personName(receivedById)}
+            Entrega {personName(deliveredById)}
+            {withDriver ? ` · Lleva ${personName(driverId)}` : ""} · Recibe {personName(receivedById)}
           </Text>
           <Text style={font.small}>
             {formatDateTime(movedAt)}
@@ -306,11 +341,13 @@ export default function NewTransferScreen() {
           hint="Estado de las herramientas al salir del origen."
           onChange={onDeliveryPhotos}
         />
-        <PhotoPicker
-          label="Fotos al recibir (opcional)"
-          hint="Si quien recibe aún no las tiene, puede agregarlas después desde el detalle del traslado."
-          onChange={onReceptionPhotos}
-        />
+        {withDriver ? null : (
+          <PhotoPicker
+            label="Fotos al recibir (opcional)"
+            hint="Si quien recibe aún no las tiene, puede agregarlas después desde el detalle del traslado."
+            onChange={onReceptionPhotos}
+          />
+        )}
       </View>
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
@@ -342,6 +379,8 @@ const useStyles = makeStyles(({ colors }) =>
     input: { flex: 1, fontSize: 15, color: colors.text },
     scanBtn: { width: 48, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
     stepVisible: { gap: space.lg },
+    mode: { gap: space.xs },
+    modeRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
     hidden: { display: "none" },
     summary: { borderLeftWidth: 4, borderLeftColor: colors.primary },
   }),

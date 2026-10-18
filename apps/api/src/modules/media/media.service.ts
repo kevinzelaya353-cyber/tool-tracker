@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+import { can, type Role } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { processImage, type ProcessedImage } from "./image.js";
 import type { ObjectStorage } from "./storage.js";
 
 type Ctx = { actorId: string; ip?: string };
+type ActorCtx = Ctx & { role: Role };
+
+/** Quien registra traslados, eventos o herramientas puede quitar de la app una foto ya asociada. */
+const canHidePhotos = (role: Role) => can(role, "transfers:create") || can(role, "lifecycle:create") || can(role, "tools:write");
 
 export interface MediaConfig {
   urlTtlSec: number;
@@ -24,7 +29,8 @@ export class MediaService {
    * rechaza la petición completa. Las fotos quedan "huérfanas" hasta que un
    * traslado o evento las asocia; las que nunca se asocian se purgan.
    */
-  async upload(files: { buffer: Buffer }[], ctx: Ctx) {
+  /** `geo`: dónde estaba el teléfono al tomar la tanda de fotos (si dio permiso de ubicación). */
+  async upload(files: { buffer: Buffer }[], ctx: Ctx, geo?: { latitude: number; longitude: number; accuracyM?: number }) {
     if (files.length === 0) throw AppError.badRequest("NO_FILES", "Adjunta al menos una foto en el campo 'photos'");
 
     const processed: ProcessedImage[] = [];
@@ -65,6 +71,9 @@ export class MediaService {
           width: r.width,
           height: r.height,
           uploadedById: r.uploadedById,
+          latitude: geo?.latitude,
+          longitude: geo?.longitude,
+          accuracyM: geo?.accuracyM,
         })),
       });
     } catch (err) {
@@ -98,6 +107,7 @@ export class MediaService {
     const photos = await this.prisma.photo.findMany({
       where: {
         id: { in: ids },
+        hiddenAt: null, // las eliminadas desde la app ya no se sirven (solo quedan en el Excel)
         OR: [
           { uploadedById: actorId },
           { transferId: { not: null } },
@@ -116,13 +126,33 @@ export class MediaService {
     return { expiresIn: this.cfg.urlTtlSec, urls: Object.fromEntries(entries) };
   }
 
-  /** El autor puede descartar una foto mientras no esté asociada (p. ej. la quitó del formulario). */
-  async discard(id: string, ctx: Ctx) {
+  /**
+   * Eliminar una foto desde la app:
+   * - Sin asociar (el autor la quitó del formulario): se borra del todo.
+   * - Ya asociada a un traslado, evento o herramienta: solo se oculta. Deja de verse y de
+   *   descargarse en la app, pero se conserva para el historial del Excel y la auditoría.
+   */
+  async discard(id: string, ctx: ActorCtx) {
     const photo = await this.prisma.photo.findUnique({ where: { id } });
-    if (!photo || photo.uploadedById !== ctx.actorId) throw AppError.notFound("Foto");
+    if (!photo || photo.hiddenAt) throw AppError.notFound("Foto");
     if (photo.transferId || photo.lifecycleEventId || photo.toolId) {
-      throw AppError.conflict("PHOTO_ATTACHED", "La foto ya es evidencia de un movimiento y no se puede borrar");
+      if (!canHidePhotos(ctx.role)) throw AppError.forbidden();
+      await this.prisma.$transaction(async (tx) => {
+        await tx.photo.update({ where: { id }, data: { hiddenAt: new Date() } });
+        // Si era la foto propia de la herramienta, la herramienta queda sin foto en la app.
+        await tx.tool.updateMany({ where: { coverPhotoId: id }, data: { coverPhotoId: null } });
+        await audit(tx, {
+          actorId: ctx.actorId,
+          action: "photo.hide",
+          entity: "photo",
+          entityId: id,
+          diff: { transferId: photo.transferId, lifecycleEventId: photo.lifecycleEventId, toolId: photo.toolId },
+          ip: ctx.ip,
+        });
+      });
+      return;
     }
+    if (photo.uploadedById !== ctx.actorId) throw AppError.notFound("Foto");
     const { count } = await this.prisma.photo.deleteMany({
       where: { id, transferId: null, lifecycleEventId: null, toolId: null },
     });

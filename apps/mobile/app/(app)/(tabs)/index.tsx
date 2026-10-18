@@ -8,16 +8,21 @@ import { ErrorBanner } from "@/components/ui/Feedback";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { StackedBarChart } from "@/components/charts/StackedBarChart";
 import { presetRange, toSpendColumns, useReportSummary, useSpendOverTime } from "@/features/reports/api";
+import { usePendingTransfers, type PendingFilter } from "@/features/transfers/api";
 import { formatMoney } from "@/lib/format";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
-const STATUS_ORDER: ToolStatus[] = ["BODEGA", "EN_PROYECTO", "EN_MANTENIMIENTO", "DANADA", "EXTRAVIADA"];
+const STATUS_ORDER: ToolStatus[] = ["BODEGA", "EN_PROYECTO", "EN_TRANSITO", "EN_MANTENIMIENTO", "DANADA", "EXTRAVIADA"];
+
+/** Más de esto en camino se marca como atrasado. */
+const LATE_HOURS = 24;
 
 export default function Dashboard() {
   const styles = useStyles();
   const { colors, font, chart, statusColors } = useTheme();
   const { user, can } = useAuth();
-  const summary = useReportSummary();
+  const canReports = can("reports:read");
+  const summary = useReportSummary(canReports);
   const countsData = useMemo(
     () =>
       summary.data
@@ -29,7 +34,7 @@ export default function Dashboard() {
   const total = counts.data ? STATUS_ORDER.reduce((s, k) => s + counts.data![k], 0) : 0;
 
   const last12 = useMemo(() => presetRange("12m"), []);
-  const spend = useSpendOverTime(last12.range, last12.granularity);
+  const spend = useSpendOverTime(last12.range, last12.granularity, canReports);
 
   return (
     <ScrollView
@@ -50,8 +55,16 @@ export default function Dashboard() {
         {can("tools:write") ? <QuickAction icon="add-circle-outline" label="Agregar" onPress={() => router.push("/tool/new")} /> : null}
       </View>
 
+      {/* Lo que está en camino: la carga del chofer, lo que espera quien recibe y, para supervisores, todo. */}
+      {user?.role === "CHOFER" ? <PendingCard title="Mi carga" icon="car-outline" filter={{ driverId: user.id }} /> : null}
+      {can("transfers:receive") && user?.role !== "CHOFER" ? (
+        <PendingCard title="Por recibir" icon="download-outline" filter={{ receivedById: user!.id }} />
+      ) : null}
+      {can("transfers:override") ? <PendingCard title="En camino" icon="navigate-outline" filter={{}} /> : null}
+
       <ErrorBanner error={counts.error} />
 
+      {canReports ? (
       <Card>
         <View style={styles.totalRow}>
           <Text style={font.h2}>Inventario</Text>
@@ -87,6 +100,7 @@ export default function Dashboard() {
           ))}
         </View>
       </Card>
+      ) : null}
 
       {spend.data ? (
         <Card>
@@ -119,6 +133,38 @@ export default function Dashboard() {
         </Card>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** Traslados en tránsito según el filtro; se oculta si no hay ninguno. */
+function PendingCard({ title, icon, filter }: { title: string; icon: ComponentProps<typeof Ionicons>["name"]; filter: PendingFilter }) {
+  const styles = useStyles();
+  const { colors, font } = useTheme();
+  const q = usePendingTransfers(filter);
+  const list = q.data ?? [];
+  if (list.length === 0) return null;
+  const late = list.filter((t) => Date.now() - new Date(t.movedAt).getTime() > LATE_HOURS * 3_600_000).length;
+  return (
+    <Card style={{ ...styles.pending, borderLeftColor: late ? colors.danger : colors.transit }}>
+      <View style={styles.alertRow}>
+        <Ionicons name={icon} size={22} color={late ? colors.danger : colors.transit} />
+        <Text style={[font.h2, styles.flex]}>
+          {title} ({list.length})
+        </Text>
+        {late ? <Text style={[font.small, { color: colors.danger, fontWeight: "700" }]}>{late} con más de 1 día</Text> : null}
+      </View>
+      {list.slice(0, 5).map((t) => (
+        <Pressable key={t.id} onPress={() => router.push(`/transfer/${t.id}`)} style={styles.pendingRow}>
+          <Text style={[font.body, styles.flex]} numberOfLines={1}>
+            {t.fromLocation.name} → {t.toLocation.name}
+          </Text>
+          <Text style={font.small}>
+            {t._count.items} herr. · {t.driver?.name ?? ""}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        </Pressable>
+      ))}
+    </Card>
   );
 }
 
@@ -171,5 +217,7 @@ const useStyles = makeStyles(({ colors }) =>
     link: { color: colors.primaryDark, fontWeight: "700" },
     alert: { borderLeftWidth: 4, borderLeftColor: colors.danger },
     alertRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+    pending: { borderLeftWidth: 4 },
+    pendingRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: space.xs },
   }),
 );

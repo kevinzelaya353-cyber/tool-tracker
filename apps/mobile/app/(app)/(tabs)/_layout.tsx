@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
 import { Pressable, type ColorValue } from "react-native";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { useThemePreference } from "@/features/theme/ThemeProvider";
 import { space, useTheme } from "@/theme";
 
@@ -30,6 +31,7 @@ function ThemeToggle() {
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+  const { can } = useAuth();
   return (
     <Tabs
       screenOptions={{
@@ -45,7 +47,11 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: "Inicio", tabBarIcon: icon("grid-outline") }} />
       <Tabs.Screen name="tools" options={{ title: "Herramientas", tabBarIcon: icon("hammer-outline") }} />
       <Tabs.Screen name="transfers" options={{ title: "Traslados", tabBarIcon: icon("swap-horizontal-outline") }} />
-      <Tabs.Screen name="reports" options={{ title: "Reportes", tabBarIcon: icon("bar-chart-outline") }} />
+      {/* El chofer no ve costos: sin permiso de reportes la pestaña no aparece. */}
+      <Tabs.Screen
+        name="reports"
+        options={{ title: "Reportes", tabBarIcon: icon("bar-chart-outline"), href: can("reports:read") ? undefined : null }}
+      />
       <Tabs.Screen name="profile" options={{ title: "Perfil", tabBarIcon: icon("person-circle-outline") }} />
     </Tabs>
   );

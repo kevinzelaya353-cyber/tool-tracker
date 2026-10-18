@@ -69,20 +69,24 @@ export async function resetDb() {
 
 let passwordHash: string | undefined;
 
-export async function createUser(role: Role, overrides: { name?: string; email?: string; active?: boolean } = {}) {
+export async function createUser(
+  role: Role,
+  overrides: { name?: string; email?: string; username?: string; active?: boolean } = {},
+) {
   passwordHash ??= await hashPassword(PASSWORD); // un solo hash por proceso: argon2 es lento a propósito
   const user = await prisma.user.create({
     data: {
       name: overrides.name ?? `${role} ${randomUUID().slice(0, 4)}`,
       email: overrides.email ?? `${role.toLowerCase()}-${randomUUID().slice(0, 8)}@test.local`,
+      username: overrides.username ?? `${role.toLowerCase()}-${randomUUID().slice(0, 8)}`,
       role,
       active: overrides.active ?? true,
       passwordHash,
     },
   });
   const pair = await tokens.issue({ userId: user.id, role });
-  // Los usuarios de prueba siempre tienen correo (las personas sin acceso no lo tienen).
-  return { ...user, email: user.email!, token: pair.accessToken, refreshToken: pair.refreshToken };
+  // Los usuarios de prueba siempre tienen correo y usuario (las personas sin acceso no los tienen).
+  return { ...user, email: user.email!, username: user.username!, token: pair.accessToken, refreshToken: pair.refreshToken };
 }
 
 export type TestUser = Awaited<ReturnType<typeof createUser>>;

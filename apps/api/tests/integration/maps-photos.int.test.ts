@@ -90,6 +90,45 @@ describe("mapa y fotos de traslados y herramientas (integración)", () => {
     });
   });
 
+  describe("eliminar fotos desde la app", () => {
+    it("una foto de traslado se oculta en la app pero se conserva para el Excel", async () => {
+      const t = await createTool(base);
+      const [bad, good] = [await fakePhoto(base.bodeguero), await fakePhoto(base.bodeguero)];
+      const created = await as(base.bodeguero).post("/api/transfers", transferBody(base, [t.id], { photoIds: [bad.id, good.id] }));
+      const id = created.body.id as string;
+
+      expect((await as(base.lector).delete(`/api/media/${bad.id}`)).status).toBe(403);
+      expect((await as(base.supervisor).delete(`/api/media/${bad.id}`)).status).toBe(204);
+      expect((await as(base.supervisor).delete(`/api/media/${bad.id}`)).status).toBe(404); // ya eliminada
+
+      const detail = await as(base.lector).get(`/api/transfers/${id}`);
+      expect(detail.body.photos.map((p: { id: string }) => p.id)).toEqual([good.id]);
+      const urls = await as(base.lector).post("/api/media/urls", { ids: [bad.id, good.id] });
+      expect(Object.keys(urls.body.urls)).toEqual([good.id]);
+
+      // Sigue en la base de datos (para el Excel) y queda auditado.
+      expect((await prisma.photo.findUniqueOrThrow({ where: { id: bad.id } })).hiddenAt).not.toBeNull();
+      expect(await prisma.auditLog.count({ where: { action: "photo.hide", entityId: bad.id } })).toBe(1);
+    });
+
+    it("al eliminar la foto propia de la herramienta, la herramienta queda sin foto", async () => {
+      const photo = await fakePhoto(base.bodeguero);
+      const created = await as(base.bodeguero).post("/api/tools", {
+        code: "FOTO-DEL",
+        categoryId: base.category.id,
+        brand: "Bosch",
+        purchasePrice: "50.00",
+        purchaseDate: "2025-01-10",
+        initialLocationId: base.bodega.id,
+        photoId: photo.id,
+      });
+      expect((await as(base.bodeguero).delete(`/api/media/${photo.id}`)).status).toBe(204);
+      const tool = await as(base.lector).get(`/api/tools/${created.body.id}`);
+      expect(tool.body.coverPhotoId).toBeNull();
+      expect(tool.body.photos).toEqual([]);
+    });
+  });
+
   describe("foto de la herramienta", () => {
     it("se registra al dar de alta y se puede cambiar; la anterior queda en su historial", async () => {
       const first = await fakePhoto(base.bodeguero);

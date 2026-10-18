@@ -18,12 +18,13 @@ export const reportKeys = {
   losses: (r: Range) => ["reports", "losses", r] as const,
 };
 
-export const useReportSummary = () =>
-  useQuery({ queryKey: reportKeys.summary, queryFn: () => api.get<ReportSummary>("/api/reports/summary") });
+export const useReportSummary = (enabled = true) =>
+  useQuery({ queryKey: reportKeys.summary, enabled, queryFn: () => api.get<ReportSummary>("/api/reports/summary") });
 
-export const useSpendOverTime = (range: Range, granularity: Granularity) =>
+export const useSpendOverTime = (range: Range, granularity: Granularity, enabled = true) =>
   useQuery({
     queryKey: reportKeys.overTime(range, granularity),
+    enabled,
     queryFn: () => api.get<SpendPeriodRow[]>("/api/reports/spend-over-time", { ...range, granularity }),
   });
 

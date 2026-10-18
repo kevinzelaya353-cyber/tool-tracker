@@ -23,10 +23,13 @@ export default function ToolDetailScreen() {
   if (tool.isLoading) return <Loading />;
   if (!tool.data) return <Screen><ErrorBanner error={tool.error} /></Screen>;
   const t = tool.data;
+  // La salida más reciente (el historial viene del más nuevo al más antiguo).
+  const trip = t.status === "EN_TRANSITO" ? history.data?.find((e) => e.type === "DISPATCH")?.transfer : undefined;
 
-  const canTransfer = can("transfers:create") && t.availableEvents.includes("TRANSFER");
+  // En tránsito no tiene ubicación: solo llega confirmando la recepción del traslado.
+  const canTransfer = can("transfers:create") && t.availableEvents.includes("TRANSFER") && Boolean(t.currentLocation);
   const actions = t.availableEvents
-    .filter((e) => e !== "TRANSFER")
+    .filter((e) => e !== "TRANSFER" && e !== "DISPATCH")
     .filter((e) => (e === "DECOMMISSION" ? can("lifecycle:decommission") : can("lifecycle:create")));
 
   return (
@@ -40,13 +43,17 @@ export default function ToolDetailScreen() {
         </Text>
         <StatusBadge status={t.status} />
         <View style={styles.facts}>
-          <Fact label="Ubicación" value={t.currentLocation?.name ?? "—"} />
+          <Fact label="Ubicación" value={trip ? `En camino a ${trip.toLocation.name}` : (t.currentLocation?.name ?? "—")} />
           <Fact label="A cargo de" value={t.currentCustodian?.name ?? "—"} />
           <Fact label="Serie" value={t.serial ?? "—"} />
           <Fact label="Compra" value={`${formatDateUTC(t.purchaseDate)} · ${formatMoney(t.purchasePrice)}`} />
           {t.supplier ? <Fact label="Proveedor" value={t.supplier} /> : null}
         </View>
       </Card>
+
+      {trip ? (
+        <Button title="Ver traslado en camino" icon="car-outline" variant="secondary" onPress={() => router.push(`/transfer/${trip.id}`)} />
+      ) : null}
 
       {canTransfer || actions.length > 0 ? (
         <View style={styles.actions}>

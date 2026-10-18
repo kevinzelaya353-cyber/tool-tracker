@@ -12,7 +12,7 @@ salvo que se indique otra.
 | # | Severidad | Hallazgo | Corrección |
 |---|---|---|---|
 | 1 | Media | `trust proxy` fijo en 1. Expuesta sin proxy, un cliente podía falsear `X-Forwarded-For` y evadir el rate limit. | Variable `TRUST_PROXY` (por defecto 0). |
-| 2 | Media | El límite de login era solo por IP. La fuerza bruta distribuida contra una cuenta no se frenaba. | Segundo limitador por correo: 10 fallos en 15 min. |
+| 2 | Media | El límite de login era solo por IP. La fuerza bruta distribuida contra una cuenta no se frenaba. | Segundo limitador por cuenta: 10 fallos en 15 min. |
 | 3 | Media | Cualquier BODEGUERO podía cambiar el precio o la fecha de compra ya registrados, lo que altera los reportes financieros. | Nuevo permiso `tools:financial`, solo para ADMIN. Prueba en `tools.int.test.ts`. |
 | 4 | Baja | `redact()` del audit log desarmaba los `Decimal` en sus campos internos: los montos auditados quedaban ilegibles. | Solo recorre objetos planos; las demás instancias usan su `toJSON`. Prueba unitaria y de integración. |
 | 5 | Baja | `created_at` de los eventos usaba `now()` (inicio de la transacción). Con eventos concurrentes en el mismo instante, el historial podía ordenarse al revés de como se confirmaron. | `clock_timestamp()`. Prueba de concurrencia en `lifecycle.int.test.ts`. |
@@ -21,7 +21,12 @@ salvo que se indique otra.
 ## Controles verificados
 
 **Autenticación**
-- Contraseñas con argon2id. Hash señuelo para que el tiempo de respuesta no revele qué cuentas existen. Mismo mensaje de error en todos los casos de fallo.
+- Inicio de sesión con usuario corto (las cuentas antiguas también con correo). Los administradores usan contraseña completa (10+ caracteres, letras y números); el resto de roles, un PIN de 4 dígitos que rechaza repeticiones, escaleras (1234, 4321) y los PIN más comunes.
+- PIN y contraseñas con argon2id. Hash señuelo para que el tiempo de respuesta no revele qué cuentas existen. Mismo mensaje de error para usuario inexistente, PIN incorrecto o cuenta inactiva.
+- 5 PIN incorrectos seguidos bloquean la cuenta (HTTP 423) hasta que un administrador la desbloquea o le asigna un PIN nuevo. Un acierto reinicia el contador. Los administradores no se bloquean: los protege su contraseña completa y el límite de peticiones.
+- Cambiar un usuario a administrador (o al revés) exige asignarle una credencial nueva acorde al rol.
+- Recepción de traslados con chofer: la confirma quien recibe (sesión), su PIN escrito en el teléfono del chofer, o alguien con `transfers:override` (ADMIN, BODEGUERO). El método queda guardado y auditado. El PIN se verifica fuera de la transacción para que un PIN incorrecto sume al contador de bloqueo, y los logs ocultan `req.body.pin`. El chofer no puede ser quien recibe.
+- La recepción bloquea el traslado (`SELECT … FOR UPDATE`): dos confirmaciones simultáneas no se aplican dos veces.
 - Access token JWT HS256 de 15 min, con `iss`, `aud` y algoritmo fijo (rechaza `alg: none` y firmas falsas).
 - Refresh token aleatorio de 384 bits, guardado como HMAC y rotado en cada uso. La reutilización revoca toda la sesión y se audita. La revocación condicional evita carreras.
 - Desactivar un usuario, o cambiarle rol o contraseña, revoca sus sesiones.
@@ -59,11 +64,12 @@ salvo que se indique otra.
 ## Riesgos aceptados y recomendaciones
 
 1. **Ventana de 15 min tras desactivar un usuario.** Su access token sigue siendo válido hasta expirar. Si no es aceptable: verificar `active` en `authenticate` con una caché de unos 60 s.
-2. **La cadena de custodia confía en quien registra.** Un supervisor puede indicar que otra persona recibió. Recomendado para la siguiente iteración: confirmación del receptor desde su sesión o con PIN, con estado "pendiente de recepción".
+2. **La cadena de custodia en traslados directos confía en quien registra.** Un supervisor puede indicar que otra persona recibió. Los traslados con chofer ya lo resuelven (la llegada la confirma quien recibe, con su sesión o su PIN). Si se quiere exigir lo mismo siempre, basta con obligar a usar chofer o una confirmación equivalente en los directos.
 3. **Memoria en subidas.** multer usa memoria: 5 × 15 MB por petición. Con mucha concurrencia, conviene poner un límite de tamaño de cuerpo en el proxy (por ejemplo `client_max_body_size 80m`) y escalar en horizontal.
 4. **HTTPS obligatorio en producción**, terminado en el proxy o balanceador. La app móvil debe usar `https://` en `EXPO_PUBLIC_API_URL`.
-5. **Bloqueo por correo:** un atacante puede bloquear el login de una víctima durante 15 min. Es una contrapartida aceptada a cambio de frenar la fuerza bruta.
-6. **Dependencias:** CI ejecuta `pnpm audit --prod`. Hace falta commitear el lockfile tras el primer `pnpm install`.
+5. **Bloqueo de cuentas con PIN:** quien conozca un nombre de usuario puede bloquear esa cuenta con 5 intentos, y el mensaje de cuenta bloqueada revela que el usuario existe. Es la contrapartida aceptada de usar PIN de 4 dígitos: sin bloqueo, 10.000 combinaciones se adivinan en días. El administrador ve las cuentas bloqueadas primero en la pantalla de Usuarios.
+6. **Ubicación de las fotos:** la app guarda dónde se tomó cada foto de cámara (con permiso del usuario), no las de galería. Sirve como indicio, no como prueba: el GPS de un teléfono se puede falsear.
+7. **Dependencias:** CI ejecuta `pnpm audit --prod`. Hace falta commitear el lockfile tras el primer `pnpm install`.
 
 ## Cómo verificar
 

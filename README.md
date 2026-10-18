@@ -54,10 +54,23 @@ cd apps/mobile && npx expo install --fix         # alinea versiones nativas con 
 pnpm dev:mobile                                  # abre con Expo Go o un development build
 ```
 
-Pantallas: login, inicio (inventario por estado y accesos rápidos), herramientas (búsqueda,
+Pantallas: login (usuario + PIN de 4 dígitos; contraseña completa para administradores), inicio (inventario por estado y accesos rápidos), herramientas (búsqueda,
 filtros y QR), detalle con historial y fotos, alta de herramienta, eventos (daño, extravío,
 mantenimiento, recuperación, baja), traslados y wizard de traslado en 4 pasos con cámara
 de varias fotos. Las acciones visibles dependen de los permisos del rol y de la máquina de estados.
+Desde Perfil, el administrador registra usuarios, cambia roles y PIN, y desbloquea cuentas.
+
+**Traslados con chofer.** Un traslado puede ser directo (llega en el acto) o con chofer: las
+herramientas quedan **En tránsito**, sin ubicación y a cargo del chofer, hasta que se confirma la
+llegada con una lista de verificación (llegó bien / llegó dañada / no llegó) y fotos. Confirma quien
+recibe desde su sesión, escribiendo su PIN en el teléfono del chofer, o un bodeguero/administrador en
+su nombre (queda registrado cuál). Lo que no llegó queda extraviado a cargo del chofer. El rol
+**Chofer** registra salidas y entregas, ve su carga en el inicio y no ve costos. Las fotos tomadas
+con la cámara guardan dónde se tomaron, y el detalle avisa si la de recepción está lejos del destino.
+
+El Excel exportado incluye la pestaña **Bitácora**: todo lo que registraron todos los usuarios,
+en orden de fecha y hora y agrupado por día. Las horas se muestran en la zona de `REPORTS_TZ`
+(para Honduras: `America/Tegucigalpa`).
 
 ## API (todas bajo `/api`, con `Authorization: Bearer` salvo auth)
 

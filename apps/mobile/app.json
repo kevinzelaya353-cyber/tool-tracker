@@ -37,7 +37,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Se usa tu ubicación para marcar en el mapa dónde está una bodega o proyecto."
+          "locationWhenInUsePermission": "Se usa tu ubicación para marcar en el mapa dónde está una bodega o proyecto, y para registrar dónde se tomaron las fotos de entrega y recepción."
         }
       ]
     ],

@@ -4,8 +4,9 @@ import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/Feedback";
 import { PhotoPicker } from "@/features/camera/PhotoPicker";
-import { usePhotoUrls } from "@/features/media/api";
+import { useDeletePhoto, usePhotoUrls } from "@/features/media/api";
 import { useSetToolPhoto } from "@/features/tools/api";
+import { confirmAsync } from "@/lib/dialogs";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
 interface Props {
@@ -20,6 +21,7 @@ export function ToolCoverPhoto({ toolId, photoId, canEdit }: Props) {
   const { colors, font } = useTheme();
   const urls = usePhotoUrls(photoId ? [photoId] : [], "full");
   const setPhoto = useSetToolPhoto(toolId);
+  const del = useDeletePhoto();
   const [editing, setEditing] = useState(false);
 
   const sent = useRef<string | null>(null);
@@ -37,6 +39,16 @@ export function ToolCoverPhoto({ toolId, photoId, canEdit }: Props) {
   );
 
   const url = photoId ? urls.data?.[photoId] : undefined;
+
+  const onDelete = async () => {
+    if (!photoId) return;
+    const ok = await confirmAsync(
+      "¿Eliminar la foto de la herramienta?",
+      "Dejará de verse en la app. En el reporte de Excel se conserva como parte del historial.",
+      { confirmText: "Eliminar", destructive: true },
+    );
+    if (ok) del.mutate(photoId);
+  };
 
   return (
     <View style={styles.wrap}>
@@ -56,14 +68,20 @@ export function ToolCoverPhoto({ toolId, photoId, canEdit }: Props) {
       )}
 
       {canEdit && !editing ? (
-        <Button
-          title={photoId ? "Cambiar foto" : "Agregar foto"}
-          icon="camera-outline"
-          variant="secondary"
-          compact
-          onPress={() => setEditing(true)}
-        />
+        <View style={styles.actions}>
+          <Button
+            title={photoId ? "Cambiar foto" : "Agregar foto"}
+            icon="camera-outline"
+            variant="secondary"
+            compact
+            onPress={() => setEditing(true)}
+          />
+          {photoId ? (
+            <Button title="Eliminar foto" icon="trash-outline" variant="ghost" compact loading={del.isPending} onPress={onDelete} />
+          ) : null}
+        </View>
       ) : null}
+      <ErrorBanner error={del.error} />
       {editing ? (
         <>
           <ErrorBanner error={setPhoto.error} />
@@ -78,6 +96,7 @@ export function ToolCoverPhoto({ toolId, photoId, canEdit }: Props) {
 const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     wrap: { gap: space.sm },
+    actions: { gap: space.xs },
     img: { width: "100%", aspectRatio: 4 / 3, borderRadius: radius.md, backgroundColor: colors.neutralSoft },
     center: { alignItems: "center", justifyContent: "center", gap: space.xs },
   }),

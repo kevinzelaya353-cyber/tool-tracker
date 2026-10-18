@@ -65,3 +65,22 @@ describe("availableEvents / isTerminal", () => {
     expect(availableEvents("EXTRAVIADA").sort()).toEqual(["DECOMMISSION", "RECOVERY"]);
   });
 });
+
+describe("traslado con chofer", () => {
+  it("la salida deja la herramienta en tránsito", () => {
+    expect(resolveTransition("BODEGA", "DISPATCH")).toEqual({ ok: true, to: "EN_TRANSITO" });
+    expect(resolveTransition("EN_PROYECTO", "DISPATCH")).toEqual({ ok: true, to: "EN_TRANSITO" });
+  });
+
+  it("en tránsito solo puede llegar a destino: no sale otra vez ni admite eventos manuales", () => {
+    expect(resolveTransition("EN_TRANSITO", "TRANSFER", "PROYECTO")).toEqual({ ok: true, to: "EN_PROYECTO" });
+    expect(resolveTransition("EN_TRANSITO", "DISPATCH").ok).toBe(false);
+    expect(availableEvents("EN_TRANSITO")).toEqual(["TRANSFER"]);
+  });
+
+  it("dañada, en mantenimiento o extraviada no puede salir con chofer", () => {
+    for (const s of ["DANADA", "EN_MANTENIMIENTO", "EXTRAVIADA", "DADA_DE_BAJA"] as const) {
+      expect(resolveTransition(s, "DISPATCH").ok).toBe(false);
+    }
+  });
+});

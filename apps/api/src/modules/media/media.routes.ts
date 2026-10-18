@@ -11,9 +11,18 @@ import type { MediaService } from "./media.service.js";
 export const UPLOAD_LIMITS = {
   fileSize: 15 * 1024 * 1024, // 15 MB por foto (fotos de teléfono típicas: 3–8 MB)
   files: 5, // por petición; la app sube en tandas
-  fields: 0, // solo archivos
-  parts: 5,
+  fields: 3, // ubicación opcional de la tanda: lat, lng, acc
+  parts: 8,
 } as const;
+
+/** Ubicación opcional de la tanda (campos de texto del multipart). Ambas coordenadas o ninguna. */
+const geoFields = z
+  .object({
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    lng: z.coerce.number().min(-180).max(180).optional(),
+    acc: z.coerce.number().min(0).max(100_000).optional(),
+  })
+  .refine((g) => (g.lat == null) === (g.lng == null), { message: "Indica latitud y longitud juntas", path: ["lng"] });
 
 // memoryStorage: el archivo original nunca toca el disco; se re-codifica y se descarta.
 const upload = multer({
@@ -53,7 +62,13 @@ export function mediaRouter(svc: MediaService) {
     upload.array("photos", UPLOAD_LIMITS.files),
     async (req, res) => {
       const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-      res.status(201).json(await svc.upload(files, { actorId: currentUser(res).userId, ip: req.ip }));
+      const g = geoFields.safeParse(req.body ?? {});
+      if (!g.success) throw AppError.badRequest("VALIDATION_ERROR", "Ubicación de la foto inválida");
+      const geo =
+        g.data.lat != null && g.data.lng != null
+          ? { latitude: g.data.lat, longitude: g.data.lng, accuracyM: g.data.acc == null ? undefined : Math.round(g.data.acc) }
+          : undefined;
+      res.status(201).json(await svc.upload(files, { actorId: currentUser(res).userId, ip: req.ip }, geo));
     },
   );
 
@@ -63,7 +78,8 @@ export function mediaRouter(svc: MediaService) {
   });
 
   r.delete("/:id", validate("params", idParams), async (req, res) => {
-    await svc.discard((res.locals.params as z.infer<typeof idParams>).id, { actorId: currentUser(res).userId, ip: req.ip });
+    const actor = currentUser(res);
+    await svc.discard((res.locals.params as z.infer<typeof idParams>).id, { actorId: actor.userId, role: actor.role, ip: req.ip });
     res.status(204).end();
   });
 

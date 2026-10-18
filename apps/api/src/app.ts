@@ -65,7 +65,7 @@ export function createApp(
   app.use(
     pinoHttp({
       enabled: env.NODE_ENV !== "test",
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.body.password", "req.body.refreshToken"],
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.body.password", "req.body.pin", "req.body.refreshToken"],
     }),
   );
   app.use(helmet());
@@ -98,7 +98,7 @@ export function createApp(
     );
     const requireAuth = authenticate(tokens);
 
-    app.use("/api/auth", authRouter(new AuthService(prisma, tokens), requireAuth));
+    app.use("/api/auth", authRouter(new AuthService(prisma, tokens), requireAuth, { rateLimit: env.NODE_ENV !== "test" }));
     app.use("/api/users", requireAuth, usersRouter(new UsersService(prisma, tokens)));
     app.use("/api/audit", requireAuth, auditRouter(prisma));
     app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma)));
@@ -111,7 +111,7 @@ export function createApp(
         }),
       ),);
     app.use("/api/lifecycle-events", requireAuth, lifecycleRouter(new LifecycleService(prisma)));
-    app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(prisma, deps.storage)));
+    app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(prisma, deps.storage, env.REPORTS_TZ ?? "UTC")));
     app.use("/api/reports", requireAuth, reportsRouter(new ReportsService(prisma, env.REPORTS_TZ ?? "UTC")));
     if (deps.storage) {
       const media = new MediaService(prisma, deps.storage, {

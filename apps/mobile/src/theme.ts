@@ -24,6 +24,8 @@ const lightColors = {
   warningSoft: "#FEF3C7",
   lost: "#7C3AED",
   lostSoft: "#EDE9FE",
+  transit: "#0E7490", // turquesa: va en el camión
+  transitSoft: "#CFFAFE",
   neutralSoft: "#F1F5F9",
   overlay: "rgba(15, 23, 42, 0.55)",
 };
@@ -52,6 +54,8 @@ const darkColors: Colors = {
   warningSoft: "#3A2A0C",
   lost: "#A78BFA",
   lostSoft: "#2A1E4F",
+  transit: "#22D3EE",
+  transitSoft: "#123A44",
   neutralSoft: "#283548",
   overlay: "rgba(0, 0, 0, 0.6)",
 };
@@ -88,6 +92,7 @@ function buildTheme(scheme: ColorScheme) {
   const statusColors: Record<ToolStatus, { fg: string; bg: string }> = {
     BODEGA: { fg: colors.success, bg: colors.successSoft },
     EN_PROYECTO: { fg: colors.info, bg: colors.infoSoft },
+    EN_TRANSITO: { fg: colors.transit, bg: colors.transitSoft },
     EN_MANTENIMIENTO: { fg: colors.warning, bg: colors.warningSoft },
     DANADA: { fg: colors.danger, bg: colors.dangerSoft },
     EXTRAVIADA: { fg: colors.lost, bg: colors.lostSoft },

@@ -56,6 +56,15 @@ describe("checkTransfer", () => {
     );
     expect(v.map((x) => x.toolId)).toEqual(["a", "b"]);
   });
+
+  it("con chofer: válido desde bodega; una herramienta ya en tránsito no puede volver a salir", () => {
+    expect(checkTransfer([tool()], transfer({ dispatch: true }))).toEqual([]);
+    // En tránsito no tiene ubicación: ni directo ni con chofer puede salir de un origen.
+    const v = checkTransfer([tool({ status: "EN_TRANSITO", currentLocationId: null })], transfer({ dispatch: true }));
+    expect(v[0]?.code).toBe("INVALID_TRANSITION");
+    const direct = checkTransfer([tool({ status: "EN_TRANSITO", currentLocationId: null })], transfer());
+    expect(direct[0]?.code).toBe("NOT_AT_ORIGIN");
+  });
 });
 
 describe("checkLifecycleEvent", () => {

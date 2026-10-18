@@ -13,16 +13,35 @@ enum Role {
   ADMIN
   BODEGUERO
   SUPERVISOR
+  CHOFER
   LECTOR
 }
 
 enum ToolStatus {
   BODEGA
   EN_PROYECTO
+  EN_TRANSITO
   EN_MANTENIMIENTO
   DANADA
   EXTRAVIADA
   DADA_DE_BAJA
+}
+
+enum TransferStatus {
+  EN_TRANSITO
+  RECIBIDO
+}
+
+enum ItemOutcome {
+  RECIBIDA
+  DANADA
+  NO_LLEGO
+}
+
+enum ReceptionMethod {
+  SESION
+  PIN
+  SUPERVISION
 }
 
 enum LocationType {
@@ -32,6 +51,7 @@ enum LocationType {
 
 enum EventType {
   PURCHASE
+  DISPATCH
   TRANSFER
   MAINTENANCE_START
   MAINTENANCE_END
@@ -42,25 +62,36 @@ enum EventType {
 }
 
 model User {
-  id           String    @id @default(uuid()) @db.Uuid
-  name         String    @db.VarChar(120)
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String    @db.VarChar(120)
   /// null = persona sin acceso a la app (solo se registra como quien entrega o recibe).
-  email        String?   @unique @db.VarChar(254)
-  passwordHash String?   @map("password_hash")
-  role         Role      @default(LECTOR)
-  active       Boolean   @default(true)
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email            String?   @unique @db.VarChar(254)
+  /// Usuario corto para iniciar sesión (minúsculas). null = sin acceso o cuenta antigua que entra con correo.
+  username         String?   @unique @db.VarChar(30)
+  /// Argon2 de la contraseña (ADMIN) o del PIN de 4 dígitos (resto de roles).
+  passwordHash     String?   @map("password_hash")
+  role             Role      @default(LECTOR)
+  active           Boolean   @default(true)
+  /// Intentos fallidos seguidos; al llegar al límite se bloquea la cuenta (solo roles con PIN).
+  failedLogins     Int       @default(0) @map("failed_logins")
+  lockedAt         DateTime? @map("locked_at") @db.Timestamptz(3)
+  /// Vehículo que se preselecciona cuando lleva un traslado (choferes).
+  defaultVehicleId String?   @map("default_vehicle_id") @db.Uuid
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  custodyOf          Tool[]           @relation("ToolCustodian")
-  transfersDelivered Transfer[]       @relation("TransferDeliveredBy")
-  transfersReceived  Transfer[]       @relation("TransferReceivedBy")
-  transfersCreated   Transfer[]       @relation("TransferCreatedBy")
-  eventsReported     LifecycleEvent[]
-  photosUploaded     Photo[]
-  refreshTokens      RefreshToken[]
-  auditLogs          AuditLog[]
+  custodyOf           Tool[]           @relation("ToolCustodian")
+  transfersDelivered  Transfer[]       @relation("TransferDeliveredBy")
+  transfersReceived   Transfer[]       @relation("TransferReceivedBy")
+  transfersCreated    Transfer[]       @relation("TransferCreatedBy")
+  transfersDriven     Transfer[]       @relation("TransferDriver")
+  receptionsConfirmed Transfer[]       @relation("TransferReceptionBy")
+  defaultVehicle      Vehicle?         @relation(fields: [defaultVehicleId], references: [id], onDelete: SetNull)
+  eventsReported      LifecycleEvent[]
+  photosUploaded      Photo[]
+  refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
 
   @@map("users")
 }
@@ -95,7 +126,8 @@ model Vehicle {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  transfers Transfer[]
+  transfers  Transfer[]
+  defaultFor User[]
 
   @@map("vehicles")
 }
@@ -147,44 +179,62 @@ model Tool {
 }
 
 model Transfer {
-  id             String   @id @default(uuid()) @db.Uuid
-  fromLocationId String   @map("from_location_id") @db.Uuid
-  toLocationId   String   @map("to_location_id") @db.Uuid
-  deliveredById  String   @map("delivered_by") @db.Uuid
-  receivedById   String   @map("received_by") @db.Uuid
-  vehicleId      String?  @map("vehicle_id") @db.Uuid
-  movedAt        DateTime @map("moved_at") @db.Timestamptz(3)
-  notes          String?  @db.VarChar(500)
+  id                  String           @id @default(uuid()) @db.Uuid
+  fromLocationId      String           @map("from_location_id") @db.Uuid
+  toLocationId        String           @map("to_location_id") @db.Uuid
+  deliveredById       String           @map("delivered_by") @db.Uuid
+  receivedById        String           @map("received_by") @db.Uuid
+  /// Con chofer: lleva las herramientas y queda a cargo de ellas mientras están en tránsito.
+  driverId            String?          @map("driver_id") @db.Uuid
+  vehicleId           String?          @map("vehicle_id") @db.Uuid
+  status              TransferStatus   @default(RECIBIDO)
+  /// Llegada confirmada (en un traslado directo, igual a moved_at).
+  receivedAt          DateTime?        @map("received_at") @db.Timestamptz(3)
+  /// Quién confirmó la llegada y cómo (su sesión, su PIN en el teléfono del chofer o un supervisor).
+  receptionById       String?          @map("reception_by") @db.Uuid
+  receptionMethod     ReceptionMethod? @map("reception_method")
+  receptionNotes      String?          @map("reception_notes") @db.VarChar(500)
+  /// Cuándo llegó la confirmación al servidor (con offline puede ser después de received_at).
+  receptionRecordedAt DateTime?        @map("reception_recorded_at") @db.Timestamptz(3)
+  movedAt             DateTime         @map("moved_at") @db.Timestamptz(3)
+  notes               String?          @db.VarChar(500)
   // Ruta por carretera calculada al registrar el traslado: [[lat, lng], …].
-  routeGeometry  Json?    @map("route_geometry")
-  routeDistanceM Int?     @map("route_distance_m")
-  routeDurationS Int?     @map("route_duration_s")
+  routeGeometry       Json?            @map("route_geometry")
+  routeDistanceM      Int?             @map("route_distance_m")
+  routeDurationS      Int?             @map("route_duration_s")
   // Imagen del mapa para la lista (maps/<id>-<hash>.jpg); el hash cambia si cambian los puntos o la ruta.
-  mapKey         String?  @map("map_key") @db.VarChar(120)
-  createdById    String   @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  mapKey              String?          @map("map_key") @db.VarChar(120)
+  createdById         String           @map("created_by") @db.Uuid
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
   fromLocation Location         @relation("TransferFrom", fields: [fromLocationId], references: [id], onDelete: Restrict)
   toLocation   Location         @relation("TransferTo", fields: [toLocationId], references: [id], onDelete: Restrict)
   deliveredBy  User             @relation("TransferDeliveredBy", fields: [deliveredById], references: [id], onDelete: Restrict)
   receivedBy   User             @relation("TransferReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
   createdBy    User             @relation("TransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  driver       User?            @relation("TransferDriver", fields: [driverId], references: [id], onDelete: Restrict)
+  receptionBy  User?            @relation("TransferReceptionBy", fields: [receptionById], references: [id], onDelete: Restrict)
   vehicle      Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   items        TransferItem[]
   photos       Photo[]
   events       LifecycleEvent[]
 
   @@index([movedAt])
+  @@index([status, driverId])
+  @@index([status, receivedById])
   @@index([fromLocationId])
   @@index([toLocationId])
   @@map("transfers")
 }
 
 model TransferItem {
-  id            String  @id @default(uuid()) @db.Uuid
-  transferId    String  @map("transfer_id") @db.Uuid
-  toolId        String  @map("tool_id") @db.Uuid
-  conditionNote String? @map("condition_note") @db.VarChar(250)
+  id            String       @id @default(uuid()) @db.Uuid
+  transferId    String       @map("transfer_id") @db.Uuid
+  toolId        String       @map("tool_id") @db.Uuid
+  conditionNote String?      @map("condition_note") @db.VarChar(250)
+  /// Resultado al confirmar la recepción (null mientras está en tránsito o en traslados directos).
+  outcome       ItemOutcome?
+  receptionNote String?      @map("reception_note") @db.VarChar(250)
 
   transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   tool     Tool     @relation(fields: [toolId], references: [id], onDelete: Restrict)
@@ -240,7 +290,13 @@ model Photo {
   lifecycleEventId String?     @map("lifecycle_event_id") @db.Uuid
   // Solo en fotos de traslado: si se tomaron al entregar o al recibir.
   stage            PhotoStage?
+  /// Dónde estaba el teléfono al tomarla (si dio permiso de ubicación).
+  latitude         Float?
+  longitude        Float?
+  accuracyM        Int?        @map("accuracy_m")
   createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  // Eliminada desde la app: deja de mostrarse, pero se conserva como evidencia para el Excel.
+  hiddenAt         DateTime?   @map("hidden_at") @db.Timestamptz(3)
 
   uploadedBy     User            @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
   tool           Tool?           @relation(fields: [toolId], references: [id], onDelete: SetNull)

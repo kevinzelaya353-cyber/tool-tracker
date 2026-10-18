@@ -5,7 +5,8 @@ import { currentUser } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import type { AuthService } from "./auth.service.js";
 
-const loginLimiter = rateLimit({
+const loginLimiter = () =>
+  rateLimit({
   windowMs: 15 * 60_000,
   limit: 10,
   skipSuccessfulRequests: true,
@@ -14,34 +15,45 @@ const loginLimiter = rateLimit({
   message: { error: { code: "TOO_MANY_ATTEMPTS", message: "Demasiados intentos, espera unos minutos" } },
 });
 
-// Por cuenta: frena fuerza bruta distribuida (muchas IPs contra un mismo correo).
-const loginAccountLimiter = rateLimit({
+// Por cuenta: frena fuerza bruta distribuida (muchas IPs contra un mismo usuario).
+const loginAccountLimiter = () =>
+  rateLimit({
   windowMs: 15 * 60_000,
   limit: 10,
   skipSuccessfulRequests: true,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  keyGenerator: (req) => `acct:${String((req.body as { email?: unknown })?.email ?? "").trim().toLowerCase()}`,
+  keyGenerator: (req) => `acct:${String((req.body as { username?: unknown })?.username ?? "").trim().toLowerCase()}`,
   message: { error: { code: "TOO_MANY_ATTEMPTS", message: "Demasiados intentos, espera unos minutos" } },
 });
 
-const refreshLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: "draft-7", legacyHeaders: false });
+const refreshLimiter = () =>
+  rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: "draft-7", legacyHeaders: false });
 
-export function authRouter(auth: AuthService, requireAuth: RequestHandler) {
+const passThrough: RequestHandler = (_req, _res, next) => next();
+
+/**
+ * Los limitadores se crean por router (cada app, su propio contador). En pruebas se desactivan:
+ * los casos de bloqueo por PIN necesitan más fallos seguidos que el límite por IP.
+ */
+export function authRouter(auth: AuthService, requireAuth: RequestHandler, opts: { rateLimit?: boolean } = {}) {
   const r = Router();
+  const on = opts.rateLimit ?? true;
+  const login = on ? [loginLimiter(), loginAccountLimiter()] : [passThrough];
+  const refresh = on ? refreshLimiter() : passThrough;
 
-  r.post("/login", loginLimiter, loginAccountLimiter, validate("body", loginSchema), async (req, res) => {
+  r.post("/login", ...login, validate("body", loginSchema), async (req, res) => {
     const result = await auth.login(res.locals.body as LoginInput, req.ip);
     res.json(result);
   });
 
-  r.post("/refresh", refreshLimiter, validate("body", refreshSchema), async (req, res) => {
+  r.post("/refresh", refresh, validate("body", refreshSchema), async (req, res) => {
     const { refreshToken } = res.locals.body as RefreshInput;
     res.json(await auth.refresh(refreshToken, req.ip));
   });
 
   // No exige access token: debe poder cerrarse sesión aunque el access haya expirado.
-  r.post("/logout", refreshLimiter, validate("body", refreshSchema), async (req, res) => {
+  r.post("/logout", refresh, validate("body", refreshSchema), async (req, res) => {
     const { refreshToken } = res.locals.body as RefreshInput;
     await auth.logout(refreshToken, req.ip);
     res.status(204).end();

@@ -40,9 +40,10 @@ function chronology(tool: LockedTool, at: Date): RuleViolation | null {
   return null;
 }
 
+/** Con `dispatch` (traslado con chofer), además debe poder salir a tránsito. */
 export function checkTransfer(
   tools: LockedTool[],
-  req: { toolIds: string[]; fromLocationId: string; destinationType: LocationType; movedAt: Date },
+  req: { toolIds: string[]; fromLocationId: string; destinationType: LocationType; movedAt: Date; dispatch?: boolean },
 ): RuleViolation[] {
   const byId = new Map(tools.map((t) => [t.id, t]));
   const violations: RuleViolation[] = [];
@@ -55,8 +56,10 @@ export function checkTransfer(
     }
 
     const t = resolveTransition(tool.status, "TRANSFER", req.destinationType);
-    if (!t.ok) {
-      violations.push({ toolId, code: t.code, message: `${tool.code}: ${t.message}` });
+    const out = req.dispatch ? resolveTransition(tool.status, "DISPATCH") : t;
+    const bad = !t.ok ? t : !out.ok ? out : null;
+    if (bad) {
+      violations.push({ toolId, code: bad.code, message: `${tool.code}: ${bad.message}` });
       continue;
     }
 
