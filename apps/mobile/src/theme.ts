@@ -61,13 +61,18 @@ const darkColors: Colors = {
 };
 
 /**
- * Tokens de gráficas: slots 1–2 de la paleta categórica de referencia y tinta de ejes/rejilla.
+ * Tokens de gráficas: slots 1–4 de la paleta categórica de referencia y tinta de ejes/rejilla.
  * Orden fijo: Compras siempre azul, Mantenimiento siempre naranja. Cada modo usa sus propios
- * pasos de la misma rampa, validados contra su superficie (el oscuro contra #1E293B).
+ * pasos de la misma rampa, validados contra su superficie (el oscuro contra #1E293B). En claro,
+ * aqua y amarillo quedan bajo 3:1: toda gráfica que los use lleva etiquetas visibles (leyenda con valores).
+ * `other` (gris) agrupa lo que no cabe en los 4 slots; nunca se genera un color extra.
  */
 const lightChart = {
   series1: "#2a78d6",
   series2: "#eb6834",
+  series3: "#1baf7a",
+  series4: "#eda100",
+  other: "#a8a79f",
   grid: "#e1e0d9",
   axis: "#c3c2b7",
   muted: "#898781",
@@ -77,6 +82,9 @@ const lightChart = {
 const darkChart: typeof lightChart = {
   series1: "#3987e5",
   series2: "#d95926",
+  series3: "#199e70",
+  series4: "#c98500",
+  other: "#64748B",
   grid: "#334155",
   axis: "#475569",
   muted: "#94A3B8",

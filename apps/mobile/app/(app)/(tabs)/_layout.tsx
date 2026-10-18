@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import { Pressable, type ColorValue } from "react-native";
+import { Pressable, useWindowDimensions, type ColorValue } from "react-native";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useThemePreference } from "@/features/theme/ThemeProvider";
 import { space, useTheme } from "@/theme";
@@ -29,12 +30,19 @@ function ThemeToggle() {
   );
 }
 
+/** Desde este ancho (web, tableta horizontal) las pestañas pasan a un panel lateral. */
+const SIDEBAR_MIN_WIDTH = 900;
+
 export default function TabsLayout() {
   const { colors } = useTheme();
   const { can } = useAuth();
+  const { width } = useWindowDimensions();
+  const wide = width >= SIDEBAR_MIN_WIDTH;
   return (
     <Tabs
+      tabBar={wide ? (props) => <Sidebar {...props} /> : undefined}
       screenOptions={{
+        tabBarPosition: wide ? "left" : "bottom",
         tabBarActiveTintColor: colors.primaryDark,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
