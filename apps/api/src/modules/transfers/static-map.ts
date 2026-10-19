@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 
 export interface LatLng {
   lat: number;
@@ -78,7 +78,7 @@ export async function renderStaticMap(input: StaticMapInput, fetchTile: TileFetc
   const tx1 = Math.floor((left + width - 1) / TILE);
   const ty1 = Math.floor((top + height - 1) / TILE);
   const max = 2 ** z;
-  const jobs: Promise<sharp.OverlayOptions | null>[] = [];
+  const jobs: Promise<OverlayOptions | null>[] = [];
   for (let tx = tx0; tx <= tx1; tx++) {
     for (let ty = ty0; ty <= ty1; ty++) {
       if (ty < 0 || ty >= max) continue;
@@ -88,7 +88,7 @@ export async function renderStaticMap(input: StaticMapInput, fetchTile: TileFetc
       );
     }
   }
-  const tiles = (await Promise.all(jobs)).filter((t): t is sharp.OverlayOptions => t !== null);
+  const tiles = (await Promise.all(jobs)).filter((t): t is OverlayOptions => t !== null);
   const grid = await sharp({
     create: {
       width: (tx1 - tx0 + 1) * TILE,
