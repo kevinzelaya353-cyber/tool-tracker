@@ -97,9 +97,9 @@ describe("mapa y fotos de traslados y herramientas (integración)", () => {
       const created = await as(base.bodeguero).post("/api/transfers", transferBody(base, [t.id], { photoIds: [bad.id, good.id] }));
       const id = created.body.id as string;
 
-      expect((await as(base.lector).delete(`/api/media/${bad.id}`)).status).toBe(403);
-      expect((await as(base.supervisor).delete(`/api/media/${bad.id}`)).status).toBe(204);
-      expect((await as(base.supervisor).delete(`/api/media/${bad.id}`)).status).toBe(404); // ya eliminada
+      expect((await as(base.lector).del(`/api/media/${bad.id}`)).status).toBe(403);
+      expect((await as(base.supervisor).del(`/api/media/${bad.id}`)).status).toBe(204);
+      expect((await as(base.supervisor).del(`/api/media/${bad.id}`)).status).toBe(404); // ya eliminada
 
       const detail = await as(base.lector).get(`/api/transfers/${id}`);
       expect(detail.body.photos.map((p: { id: string }) => p.id)).toEqual([good.id]);
@@ -122,7 +122,7 @@ describe("mapa y fotos de traslados y herramientas (integración)", () => {
         initialLocationId: base.bodega.id,
         photoId: photo.id,
       });
-      expect((await as(base.bodeguero).delete(`/api/media/${photo.id}`)).status).toBe(204);
+      expect((await as(base.bodeguero).del(`/api/media/${photo.id}`)).status).toBe(204);
       const tool = await as(base.lector).get(`/api/tools/${created.body.id}`);
       expect(tool.body.coverPhotoId).toBeNull();
       expect(tool.body.photos).toEqual([]);
@@ -173,7 +173,7 @@ describe("mapa y fotos de traslados y herramientas (integración)", () => {
       });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.body as Buffer);
-    expect(wb.worksheets.map((w) => w.name).slice(0, 4)).toEqual(["Resumen", "Herramientas", "Historial", "Traslados"]);
+    expect(wb.worksheets.map((w) => w.name).slice(0, 6)).toEqual(["Resumen", "Bitácora", "En tránsito", "Herramientas", "Historial", "Traslados"]);
 
     const hist = wb.getWorksheet("Historial")!;
     expect(String(hist.getRow(2).getCell(2).value)).toContain("HIST-1");
@@ -184,8 +184,10 @@ describe("mapa y fotos de traslados y herramientas (integración)", () => {
     expect(hist.getRow(4).getCell(8).value).toBe(38.7);
 
     const transfers = wb.getWorksheet("Traslados")!;
-    expect(transfers.getRow(2).getCell(4).value).toBe("HIST-1");
-    const route = transfers.getRow(2).getCell(10).value as { hyperlink: string };
+    // Columnas por encabezado: el orden de la hoja cambia al agregar campos.
+    const col = (header: string) => (transfers.getRow(1).values as unknown[]).indexOf(header);
+    expect(transfers.getRow(2).getCell(col("Herramientas")).value).toBe("HIST-1");
+    const route = transfers.getRow(2).getCell(col("Ruta")).value as { hyperlink: string };
     expect(route.hyperlink).toContain("openstreetmap.org/directions");
   });
 });
