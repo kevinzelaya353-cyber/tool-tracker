@@ -24,7 +24,7 @@ Sistema de gestión y trazabilidad de herramientas menores.
 pnpm install
 pnpm --filter @tt/shared build
 pnpm --filter @tt/api exec prisma generate
-pnpm db:setup        # tablas + reglas SQL + admin, bodega y categorías (usa apps/api/.env)
+pnpm db:setup        # migraciones (tablas + reglas SQL) + admin, bodega y categorías (usa apps/api/.env)
 pnpm dev:api         # http://localhost:3000/health
 pnpm dev:mobile      # QR para Expo Go
 ```

@@ -1,0 +1,174 @@
+# Despliegue continuo al VPS (docs/DEPLOY.md):
+#   push a develop → entorno "development" (no público)   ·   push a main → entorno "production" (con aprobación)
+# El build se hace AQUÍ, nunca en el servidor. El VPS es ARM64 con Ubuntu 20.04 y la API usa módulos nativos (sharp,
+# argon2, motores de Prisma): por eso se empaqueta en un runner ARM64 dentro de un contenedor ubuntu:20.04, con la
+# misma glibc y OpenSSL que el servidor. En el VPS, deploy/servidor/activar-release.sh respalda, migra, cambia `current`
+# y recarga PM2; si la release no queda sana, vuelve sola a la anterior.
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      entorno:
+        description: Entorno destino
+        type: choice
+        options: [development, production]
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  destino:
+    name: Elegir entorno
+    runs-on: ubuntu-24.04
+    outputs:
+      entorno: ${{ steps.e.outputs.entorno }}
+      web_api_url: ${{ steps.e.outputs.web_api_url }}
+    steps:
+      - id: e
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            entorno="${{ inputs.entorno }}"
+            # Producción solo desde main: evita publicar por error una rama sin revisar.
+            if [ "$entorno" = "production" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+              echo "::error::Producción solo se despliega desde main (ref actual: ${{ github.ref }})"; exit 1
+            fi
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then entorno=production
+          else entorno=development; fi
+          # URL de la API que queda compilada en la web (mismo origen que la página).
+          if [ "$entorno" = production ]; then url=https://herramientas.plexbird.com; else url=http://localhost:8082; fi
+          echo "entorno=$entorno" >> "$GITHUB_OUTPUT"
+          echo "web_api_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Entorno: $entorno ($url)" >> "$GITHUB_STEP_SUMMARY"
+
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  empaquetar:
+    name: Empaquetar release (ARM64, Ubuntu 20.04)
+    needs: [destino, ci]
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:20.04
+    timeout-minutes: 30
+    outputs:
+      release: ${{ steps.id.outputs.release }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Herramientas del sistema
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl git xz-utils python3 make g++ >/dev/null
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - id: id
+        shell: bash
+        run: |
+          RELEASE="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          printf 'release=%s\n' "$RELEASE" >> "$GITHUB_OUTPUT"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tt/shared build
+      - run: pnpm --filter @tt/api exec prisma generate
+      - run: pnpm --filter @tt/api build
+
+      - name: Web (export estático de Expo)
+        env:
+          EXPO_PUBLIC_API_URL: ${{ needs.destino.outputs.web_api_url }}
+          EXPO_PUBLIC_CURRENCY: HNL
+        run: pnpm --filter @tt/mobile exec expo export -p web --output-dir "$GITHUB_WORKSPACE/release/web"
+
+      - name: Armar paquete (solo lo necesario para ejecutar)
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=release
+          # API con sus dependencias de producción (incluye @tt/shared ya compilado y el CLI de Prisma para migrar).
+          pnpm --filter @tt/api deploy --prod "$R/api"
+          rm -rf "$R/api/dist" "$R/api/src" "$R/api/tests" "$R/api/.env"
+          cp -r apps/api/dist "$R/api/dist"
+          (cd "$R/api" && node node_modules/prisma/build/index.js generate)
+          test -f "$R/api/node_modules/@tt/shared/dist/index.js"
+          test -f "$R/api/prisma/migrations/migration_lock.toml"
+          test -f "$R/web/index.html"
+          cp -r deploy "$R/deploy"
+          printf 'release=%s\ncommit=%s\nref=%s\n' "${{ steps.id.outputs.release }}" "$GITHUB_SHA" "$GITHUB_REF_NAME" > "$R/REVISION"
+          tar -C "$R" -czf "tooltracker-${{ steps.id.outputs.release }}.tar.gz" .
+          du -h "tooltracker-${{ steps.id.outputs.release }}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: tooltracker-${{ steps.id.outputs.release }}.tar.gz
+          retention-days: 14
+
+  desplegar:
+    name: Desplegar en ${{ needs.destino.outputs.entorno }}
+    needs: [destino, empaquetar]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: ${{ needs.destino.outputs.entorno }}
+      url: ${{ vars.PUBLIC_URL }}
+    concurrency:
+      group: deploy-${{ needs.destino.outputs.entorno }}
+      cancel-in-progress: false
+    env:
+      RELEASE: ${{ needs.empaquetar.outputs.release }}
+      SSH_HOST: ${{ vars.SSH_HOST }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      SSH_USER: ${{ vars.SSH_USER }}
+      APP_DIR: ${{ vars.APP_DIR }}
+      PM2_APP: ${{ vars.PM2_APP }}
+      ENTORNO: ${{ needs.destino.outputs.entorno }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+
+      - name: Configurar SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in SSH_HOST SSH_USER APP_DIR PM2_APP SSH_PRIVATE_KEY SSH_KNOWN_HOSTS; do
+            [ -n "${!v:-}" ] || { echo "::error::Falta la variable/secreto $v en el entorno de GitHub"; exit 1; }
+          done
+          # Variables de un entorno copiadas en el otro → se corta aquí (activar-release.sh lo vuelve a comprobar).
+          case "$ENTORNO:${APP_DIR%/}:$PM2_APP" in
+            production:/srv/tooltracker-prod:tooltracker-prod | development:/srv/tooltracker-dev:tooltracker-dev) ;;
+            *) echo "::error::APP_DIR=$APP_DIR / PM2_APP=$PM2_APP no corresponden al entorno $ENTORNO"; exit 1 ;;
+          esac
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host destino\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' \
+            "$SSH_HOST" "$SSH_PORT" "$SSH_USER" > ~/.ssh/config
+
+      - name: Subir paquete
+        run: |
+          ssh destino "mkdir -p '$APP_DIR/releases/$RELEASE'"
+          scp "tooltracker-$RELEASE.tar.gz" "destino:$APP_DIR/releases/$RELEASE.tar.gz"
+
+      - name: Activar release (respaldo + migración + recarga + verificación)
+        run: |
+          ssh destino "set -e
+            cd '$APP_DIR/releases'
+            tar -xzf '$RELEASE.tar.gz' -C '$RELEASE' && rm -f '$RELEASE.tar.gz'
+            APP_DIR='$APP_DIR' PM2_APP='$PM2_APP' ENTORNO='$ENTORNO' \
+              bash '$RELEASE/deploy/servidor/activar-release.sh' '$RELEASE'"
+
+      - name: Resumen
+        if: always()
+        run: echo "Release \`$RELEASE\` → $ENTORNO (${{ vars.PUBLIC_URL }})" >> "$GITHUB_STEP_SUMMARY"
