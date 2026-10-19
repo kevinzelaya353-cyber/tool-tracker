@@ -36,7 +36,10 @@ describe("almacenamiento local", () => {
     const k = key();
     await storage.put(k, Buffer.from("x"), "image/jpeg");
     const url = pathOf(await storage.signedUrl(k, 60));
-    expect((await request(app).get(url.replace(/sig=./, "sig=Z"))).status).toBe(403);
+    // Cambiar el primer carácter de la firma por otro distinto (con "Z" fijo, 1 de cada 64 firmas no cambiaba).
+    const tampered = url.replace(/sig=(.)/, (_m, c: string) => `sig=${c === "A" ? "B" : "A"}`);
+    expect(tampered).not.toBe(url);
+    expect((await request(app).get(tampered)).status).toBe(403);
     expect((await request(app).get(pathOf(await storage.signedUrl(k, -10)))).status).toBe(403);
     expect((await request(app).get(`/files/${k}`)).status).toBe(403);
   });
