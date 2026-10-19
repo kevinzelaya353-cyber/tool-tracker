@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "com.tooltracker.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -47,14 +48,6 @@
         {
           "locationWhenInUsePermission": "Se usa tu ubicación para marcar en el mapa dónde está una bodega o proyecto, y para registrar dónde se tomaron las fotos de entrega y recepción."
         }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
-        }
       ]
     ],
     "experiments": {
@@ -67,9 +60,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "d709d8e1-1410-44c8-acec-481de4f4cbee"
+        "projectId": "f72499b4-329b-45af-a46c-c63eb8bee655"
       }
     },
-    "owner": "kevinzelaya353"
+    "owner": "plexbirds-team"
   }
 }
