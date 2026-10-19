@@ -28,9 +28,10 @@ export const useSpendOverTime = (range: Range, granularity: Granularity, enabled
     queryFn: () => api.get<SpendPeriodRow[]>("/api/reports/spend-over-time", { ...range, granularity }),
   });
 
-export const useSpendByCategory = (range: Range) =>
+export const useSpendByCategory = (range: Range, enabled = true) =>
   useQuery({
     queryKey: reportKeys.byCategory(range),
+    enabled,
     queryFn: () => api.get<CategorySpendRow[]>("/api/reports/spend-by-category", { ...range }),
   });
 

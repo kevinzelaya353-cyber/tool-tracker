@@ -9,11 +9,16 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tooltracker.app"
+      "bundleIdentifier": "com.tooltracker.app",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "package": "com.tooltracker.app",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
     },
     "plugins": [
       "expo-router",
@@ -43,6 +48,10 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "icon": "./assets/icon.png",
+    "web": {
+      "favicon": "./assets/favicon.png"
     }
   }
 }
