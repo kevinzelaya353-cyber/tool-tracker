@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { File as DeviceFile } from "expo-file-system";
 import { Platform } from "react-native";
 import { api } from "@/lib/api";
 import type { UploadedPhoto } from "@/types/api";
@@ -28,8 +29,9 @@ export async function uploadPhotos(images: LocalImage[], spot?: PhotoSpot | null
       const blob = await (await fetch(img.uri)).blob();
       form.append("photos", new File([blob], name, { type: blob.type || "image/jpeg" }));
     } else {
-      // Formato de archivo de React Native para FormData.
-      form.append("photos", { uri: img.uri, name, type: "image/jpeg" } as unknown as Blob);
+      // El fetch global de Expo (expo/fetch) no admite partes { uri, name, type } de React Native;
+      // un File de expo-file-system sí (lee los bytes). Nombre y tipo salen del archivo (.jpg).
+      form.append("photos", new DeviceFile(img.uri) as unknown as Blob);
     }
   }
   return api.upload<UploadedPhoto[]>("/api/media", form);
