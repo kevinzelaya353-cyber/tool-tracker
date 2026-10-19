@@ -1,6 +1,15 @@
 import type { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import { Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type PressableStateCallbackType,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { ROLE_LABEL } from "@/lib/format";
 import { radius, space } from "@/theme";
@@ -20,6 +29,8 @@ const C = {
   accent: "#F59E0B",
   border: "#1E293B",
 };
+
+const isHovered = (state: PressableStateCallbackType) => Boolean((state as unknown as { hovered?: boolean }).hovered);
 
 export function Sidebar({ state, descriptors, navigation }: TabBarProps) {
   const { user } = useAuth();
@@ -52,7 +63,8 @@ export function Sidebar({ state, descriptors, navigation }: TabBarProps) {
             <Pressable
               key={route.key}
               onPress={onPress}
-              style={({ hovered }: { hovered?: boolean }) => [styles.item, (focused || hovered) && styles.itemActive]}
+              // `hovered` solo existe en web (react-native-web); en los tipos nativos no está.
+              style={(state) => [styles.item, (focused || isHovered(state)) && styles.itemActive]}
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={label}
