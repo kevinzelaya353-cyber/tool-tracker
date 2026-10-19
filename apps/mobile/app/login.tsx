@@ -1,19 +1,19 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Ionicons } from "@expo/vector-icons";
 import { useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { loginSchema, type LoginInput } from "@tt/shared";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/features/auth/AuthProvider";
-import { radius, space, makeStyles, useTheme } from "@/theme";
+import { space, makeStyles, useTheme } from "@/theme";
+import LOGO from "../assets/brand/plexbird-mark.png";
 
 export default function LoginScreen() {
   const styles = useStyles();
-  const { colors, font } = useTheme();
+  const { font } = useTheme();
   const { login } = useAuth();
   const passwordRef = useRef<TextInput>(null);
   const [error, setError] = useState<unknown>(null);
@@ -34,9 +34,7 @@ export default function LoginScreen() {
   return (
     <Screen edges={["top", "bottom"]} contentStyle={styles.content}>
       <View style={styles.brand}>
-        <View style={styles.logo}>
-          <Ionicons name="construct" size={36} color={colors.onPrimary} />
-        </View>
+        <Image source={LOGO} style={styles.logo} accessibilityLabel="Plexbird" />
         <Text style={font.title}>Control de Herramientas</Text>
         <Text style={font.small}>Trazabilidad de inventario en obra</Text>
       </View>
@@ -87,17 +85,11 @@ export default function LoginScreen() {
   );
 }
 
-const useStyles = makeStyles(({ colors }) =>
+const useStyles = makeStyles(() =>
   StyleSheet.create({
     content: { flexGrow: 1, justifyContent: "center", gap: space.lg },
     brand: { alignItems: "center", gap: space.sm, marginBottom: space.lg },
-    logo: {
-      width: 72,
-      height: 72,
-      borderRadius: radius.lg,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    // Fondo transparente: solo la P, sobre el fondo de la pantalla en ambos temas.
+    logo: { width: 104, height: 104 },
   }),
 );

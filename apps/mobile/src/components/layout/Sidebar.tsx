@@ -1,10 +1,10 @@
-import { Ionicons } from "@expo/vector-icons";
 import type { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { ROLE_LABEL } from "@/lib/format";
 import { radius, space } from "@/theme";
+import LOGO from "../../../assets/brand/plexbird-mark.png";
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
 
@@ -13,12 +13,12 @@ type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
  * Es oscuro en ambos temas: enmarca el contenido como un tablero. Usa los mismos destinos que las pestañas.
  */
 const C = {
-  bg: "#111827",
+  bg: "#0F172A", // azul oscuro de la app (fondo del modo oscuro)
   item: "#CBD5E1",
   itemMuted: "#94A3B8",
-  activeBg: "#1F2937",
+  activeBg: "#1E293B",
   accent: "#F59E0B",
-  border: "#1F2937",
+  border: "#1E293B",
 };
 
 export function Sidebar({ state, descriptors, navigation }: TabBarProps) {
@@ -32,9 +32,7 @@ export function Sidebar({ state, descriptors, navigation }: TabBarProps) {
   return (
     <View style={styles.root}>
       <View style={styles.brand}>
-        <View style={styles.logo}>
-          <Ionicons name="construct" size={26} color="#1F1300" />
-        </View>
+        <Image source={LOGO} style={styles.logo} accessibilityLabel="Plexbird" />
         <Text style={styles.brandText}>Control de{"\n"}Herramientas</Text>
       </View>
 
@@ -95,7 +93,7 @@ const styles = StyleSheet.create({
     borderRightColor: C.border,
   },
   brand: { alignItems: "center", gap: space.sm, marginBottom: space.xl },
-  logo: { width: 56, height: 56, borderRadius: radius.lg, backgroundColor: C.accent, alignItems: "center", justifyContent: "center" },
+  logo: { width: 72, height: 72 },
   brandText: { color: "#FFFFFF", fontWeight: "800", fontSize: 15, textAlign: "center", lineHeight: 19 },
   nav: { flex: 1, gap: space.xs, justifyContent: "center" },
   item: {

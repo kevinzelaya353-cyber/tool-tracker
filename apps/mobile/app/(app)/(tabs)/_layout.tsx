@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import type { ComponentProps } from "react";
-import { Pressable, useWindowDimensions, type ColorValue } from "react-native";
+import { Image, Pressable, useWindowDimensions, type ColorValue } from "react-native";
+import LOGO from "../../../assets/brand/plexbird-mark.png";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useThemePreference } from "@/features/theme/ThemeProvider";
@@ -30,6 +31,11 @@ function ThemeToggle() {
   );
 }
 
+/** Logo a la izquierda del encabezado en el teléfono (en pantallas anchas va en el panel lateral). */
+function HeaderLogo() {
+  return <Image source={LOGO} style={{ width: 30, height: 30, marginLeft: space.lg }} accessibilityLabel="Plexbird" />;
+}
+
 /** Desde este ancho (web, tableta horizontal) las pestañas pasan a un panel lateral. */
 const SIDEBAR_MIN_WIDTH = 900;
 
@@ -49,6 +55,7 @@ export default function TabsLayout() {
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: "700" },
+        headerLeft: wide ? undefined : () => <HeaderLogo />,
         headerRight: () => <ThemeToggle />,
       }}
     >
