@@ -69,7 +69,9 @@ export function createApp(
     }),
   );
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGINS, credentials: false }));
+  // "*" acepta cualquier origen: la API usa Bearer, no cookies, así que no hay credenciales que filtrar.
+  const corsOrigin = env.CORS_ORIGINS.includes("*") ? "*" : env.CORS_ORIGINS;
+  app.use(cors({ origin: corsOrigin, credentials: false }));
   app.use(express.json({ limit: "100kb" })); // las fotos van por /media, no por JSON
   app.use(
     "/api",
@@ -79,6 +81,19 @@ export function createApp(
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  // Lista para recibir tráfico: el proceso responde y la BD también (lo comprueba el despliegue).
+  if (deps) {
+    const { prisma } = deps;
+    app.get("/ready", async (_req, res) => {
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        res.json({ status: "ok", db: "ok" });
+      } catch {
+        res.status(503).json({ status: "error", db: "down" });
+      }
+    });
+  }
 
   // Fotos en disco (STORAGE_DRIVER=local): fuera de /api, autorizadas por URL firmada.
   if (deps?.filesRouter) app.use("/files", deps.filesRouter);

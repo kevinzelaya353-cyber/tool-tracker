@@ -1,13 +1,25 @@
+# Integración continua: lint, tipos, pruebas unitarias e integración contra PostgreSQL real (aplica prisma/migrations).
+# Se ejecuta en cada PR hacia develop/main; en los push a esas ramas la invoca deploy.yml antes de desplegar.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main, develop]
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: Lint, tipos y pruebas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -22,6 +34,7 @@ jobs:
           --health-interval 5s
           --health-retries 10
     env:
+      # Solo para CI: credenciales desechables del contenedor.
       TEST_DATABASE_URL: postgresql://tt:tt_test_password@localhost:5433/tool_tracker_test?schema=public&connection_limit=25
     steps:
       - uses: actions/checkout@v4
@@ -30,8 +43,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      # Sin lockfile commiteado aún: cambiar a --frozen-lockfile tras el primer `pnpm install`.
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @tt/shared build
       - run: pnpm --filter @tt/api exec prisma validate
         env:
@@ -40,7 +52,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Pruebas de integración (PostgreSQL real)
+      - name: Pruebas de integración (PostgreSQL real, aplica las migraciones)
         run: pnpm --filter @tt/api test:int
       - name: Auditoría de dependencias
         run: pnpm audit --prod --audit-level high

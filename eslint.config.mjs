@@ -12,11 +12,11 @@ export default tseslint.config(
     },
   },
   {
-    // Archivos de configuración que las herramientas cargan como CommonJS (p. ej. Metro).
-    files: ["**/metro.config.js"],
+    // Archivos de configuración que las herramientas cargan como CommonJS (p. ej. Metro, PM2).
+    files: ["**/metro.config.js", "**/*.cjs"],
     languageOptions: {
       sourceType: "commonjs",
-      globals: { require: "readonly", module: "writable", __dirname: "readonly" },
+      globals: { require: "readonly", module: "writable", __dirname: "readonly", process: "readonly" },
     },
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
