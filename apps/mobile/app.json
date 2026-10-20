@@ -3,7 +3,7 @@
     "name": "Control de Herramientas",
     "slug": "tool-tracker",
     "scheme": "tooltracker",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -21,7 +21,8 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "versionCode": 2
     },
     "plugins": [
       "expo-router",
@@ -46,14 +47,6 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Se usa tu ubicación para marcar en el mapa dónde está una bodega o proyecto, y para registrar dónde se tomaron las fotos de entrega y recepción."
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
         }
       ]
     ],

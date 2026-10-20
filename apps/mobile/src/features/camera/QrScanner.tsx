@@ -2,8 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/Button";
+import { ModalSafeArea } from "@/components/ui/ModalSafeArea";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
 interface Props {
@@ -28,7 +28,7 @@ export function QrScanner({ title = "Escanea el código de la herramienta", onSc
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
+    <ModalSafeArea style={styles.root} statusBar="light">
       <View style={styles.top}>
         <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Cerrar">
           <Ionicons name="close" size={28} color="#fff" />
@@ -56,7 +56,7 @@ export function QrScanner({ title = "Escanea el código de la herramienta", onSc
           </View>
         </View>
       )}
-    </SafeAreaView>
+    </ModalSafeArea>
   );
 }
 

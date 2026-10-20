@@ -135,6 +135,8 @@ export const categoryUpdateSchema = atLeastOne(categoryCreateSchema);
 export const locationUpdateSchema = atLeastOne(
   z.object({
     name: shortText(120),
+    // Cambiar entre proyecto y bodega: solo si no tiene herramientas ni traslados en camino.
+    type: z.enum(LOCATION_TYPE),
     address: optionalText(250),
     active: z.boolean(),
     startedAt: z.coerce.date().nullable(),

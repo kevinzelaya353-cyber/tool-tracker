@@ -9,8 +9,12 @@ import { Chip } from "@/components/ui/Chip";
 import { Fab } from "@/components/ui/Fab";
 import { EmptyState, ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { usePhotoUrlMap } from "@/features/media/api";
 import { useCategories, useLocations } from "@/features/catalog/api";
-import { useToolCategoryCounts, useToolsInfinite } from "@/features/tools/api";
+import { fetchAllTools, useToolCategoryCounts, useToolsInfinite } from "@/features/tools/api";
+import { labelsHtml } from "@/features/tools/qr";
+import { notify } from "@/lib/dialogs";
+import { printHtml } from "@/lib/print";
 import { useDebounced } from "@/lib/useDebounced";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
@@ -32,6 +36,24 @@ export default function ToolsScreen() {
   const location = useLocations().data?.find((l) => l.id === locationId);
   const category = useCategories().data?.find((c) => c.id === categoryId);
   const tools = query.data?.pages.flatMap((p) => p.data) ?? [];
+  const thumbs = usePhotoUrlMap(grouped ? [] : tools.map((t) => t.coverPhotoId));
+  const listTotal = query.data?.pages[0]?.total ?? 0;
+  const [printing, setPrinting] = useState(false);
+
+  /** Hoja con la etiqueta QR de cada herramienta que cumple los filtros actuales. */
+  const printLabels = async () => {
+    setPrinting(true);
+    try {
+      const all = await fetchAllTools({ status, locationId, categoryId, q: search });
+      await printHtml(
+        labelsHtml(all.map((t) => ({ code: t.code, title: `${t.category.name} ${t.brand}${t.model ? ` ${t.model}` : ""}` }))),
+      );
+    } catch (e) {
+      await notify("No se pudieron imprimir las etiquetas", (e as Error).message);
+    } finally {
+      setPrinting(false);
+    }
+  };
   const total = counts.data?.reduce((s, c) => s + c.count, 0) ?? 0;
 
   // El dashboard navega aquí con ?status=… y la lista de proyectos con ?locationId=…
@@ -138,12 +160,29 @@ export default function ToolsScreen() {
           data={tools}
           keyExtractor={(t) => t.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => <ToolCard tool={item} onPress={() => router.push(`/tool/${item.id}`)} />}
+          renderItem={({ item }) => (
+            <ToolCard
+              tool={item}
+              thumbUrl={item.coverPhotoId ? thumbs[item.coverPhotoId] : undefined}
+              onPress={() => router.push(`/tool/${item.id}`)}
+            />
+          )}
           onEndReachedThreshold={0.4}
           onEndReached={() => query.hasNextPage && !query.isFetchingNextPage && query.fetchNextPage()}
           refreshing={query.isRefetching && !query.isFetchingNextPage}
           onRefresh={query.refetch}
-          ListHeaderComponent={<ErrorBanner error={query.error} />}
+          ListHeaderComponent={
+            <>
+              <ErrorBanner error={query.error} />
+              {listTotal > 0 ? (
+                <Pressable onPress={printLabels} disabled={printing} style={styles.allLink} accessibilityRole="button">
+                  {printing ? <ActivityIndicator size="small" color={colors.primaryDark} /> : null}
+                  <Text style={styles.allText}>Imprimir etiquetas QR ({listTotal})</Text>
+                  <Ionicons name="print-outline" size={16} color={colors.primaryDark} />
+                </Pressable>
+              ) : null}
+            </>
+          }
           ListEmptyComponent={<EmptyState icon="hammer-outline" title="Sin herramientas" />}
           ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator color={colors.primary} /> : null}
         />

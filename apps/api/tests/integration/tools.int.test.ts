@@ -111,4 +111,15 @@ describe("herramientas (integración)", () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("LOCATION_NOT_EMPTY");
   });
+
+  it("el tipo de una ubicación solo cambia si está vacía", async () => {
+    const empty = await as(base.bodeguero).patch(`/api/locations/${base.obraB.id}`, { type: "BODEGA" });
+    expect(empty.status).toBe(200);
+    expect(empty.body.type).toBe("BODEGA");
+
+    await createTool(base);
+    const res = await as(base.bodeguero).patch(`/api/locations/${base.bodega.id}`, { type: "PROYECTO" });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("LOCATION_TYPE_LOCKED");
+  });
 });

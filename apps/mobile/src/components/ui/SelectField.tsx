@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "./Button";
 import { ErrorBanner } from "./Feedback";
+import { ModalSafeArea } from "./ModalSafeArea";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 
 export interface Option {
@@ -94,7 +94,7 @@ export function SelectField({ label, value, options, onChange, placeholder = "Se
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Modal visible={open} animationType="slide" onRequestClose={close}>
-        <SafeAreaView style={styles.modal}>
+        <ModalSafeArea style={styles.modal}>
           <View style={styles.header}>
             <Text style={font.h2}>{label}</Text>
             <Pressable accessibilityLabel="Cerrar" onPress={close} hitSlop={12}>
@@ -169,7 +169,7 @@ export function SelectField({ label, value, options, onChange, placeholder = "Se
               </Pressable>
             )}
           />}
-        </SafeAreaView>
+        </ModalSafeArea>
       </Modal>
     </View>
   );

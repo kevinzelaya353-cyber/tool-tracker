@@ -16,6 +16,7 @@ import { Stepper } from "@/components/ui/Stepper";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { PhotoPicker } from "@/features/camera/PhotoPicker";
+import { usePhotoUrlMap } from "@/features/media/api";
 import { QrScanner } from "@/features/camera/QrScanner";
 import {
   useCreateLocation,
@@ -92,6 +93,8 @@ export default function NewTransferScreen() {
     return q ? eligible.filter((t) => `${t.code} ${t.brand} ${t.model ?? ""} ${t.category.name}`.toLowerCase().includes(q)) : eligible;
   }, [eligible, search]);
   const selectedTools = eligible.filter((t) => selected.has(t.id));
+  // Sobre todas las elegibles (no las filtradas): buscar no vuelve a pedir las miniaturas.
+  const thumbs = usePhotoUrlMap(eligible.map((t) => t.coverPhotoId));
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -263,7 +266,15 @@ export default function NewTransferScreen() {
           ) : visible.length === 0 ? (
             <EmptyState icon="hammer-outline" title="No hay herramientas disponibles para trasladar" />
           ) : (
-            visible.map((t) => <ToolCard key={t.id} tool={t} selected={selected.has(t.id)} onPress={() => toggle(t.id)} />)
+            visible.map((t) => (
+              <ToolCard
+                key={t.id}
+                tool={t}
+                selected={selected.has(t.id)}
+                thumbUrl={t.coverPhotoId ? thumbs[t.coverPhotoId] : undefined}
+                onPress={() => toggle(t.id)}
+              />
+            ))
           )}
         </>
       ) : null}

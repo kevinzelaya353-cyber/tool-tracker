@@ -75,6 +75,29 @@ export class CatalogService {
         }
       }
 
+      // El estado de sus herramientas depende del tipo (BODEGA / EN_PROYECTO) y su historial
+      // quedaría incoherente: el tipo solo cambia con la ubicación vacía.
+      if (input.type && input.type !== before.type) {
+        const count = await tx.tool.count({
+          where: { currentLocationId: id, status: { in: ["BODEGA", "EN_PROYECTO"] } },
+        });
+        if (count > 0) {
+          throw AppError.conflict(
+            "LOCATION_TYPE_LOCKED",
+            `No se puede cambiar el tipo: tiene ${count} herramienta(s). Trasládalas primero a otra ubicación.`,
+            { count },
+          );
+        }
+        const incoming = await tx.transfer.count({ where: { toLocationId: id, status: "EN_TRANSITO" } });
+        if (incoming > 0) {
+          throw AppError.conflict(
+            "LOCATION_TYPE_LOCKED",
+            `No se puede cambiar el tipo: hay ${incoming} traslado(s) en camino hacia aquí.`,
+            { incoming },
+          );
+        }
+      }
+
       const closedAt = input.active === false && input.closedAt === undefined ? new Date() : input.closedAt;
       const after = await tx.location.update({ where: { id }, data: { ...input, closedAt } });
       await audit(tx, { actorId: ctx.actorId, action: "location.update", entity: "location", entityId: id, diff: input, ip: ctx.ip });
