@@ -28,7 +28,7 @@ export function LeafletView({ html, height, onMessage }: LeafletViewProps) {
       title="Mapa"
       // allow-same-origin no: el mapa no necesita acceso a la sesión de la app.
       sandbox="allow-scripts"
-      style={{ width: "100%", height, border: "none", borderRadius: radius.md, display: "block" }}
+      style={{ width: "100%", height: height ?? "100%", border: "none", borderRadius: radius.md, display: "block" }}
     />
   );
 }

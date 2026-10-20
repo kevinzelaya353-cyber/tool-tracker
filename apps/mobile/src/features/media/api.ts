@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { File as DeviceFile } from "expo-file-system";
 import { Platform } from "react-native";
 import { api } from "@/lib/api";
@@ -63,3 +63,24 @@ export const usePhotoUrls = (ids: string[], variant: "thumb" | "full" = "thumb")
     queryFn: () =>
       api.post<{ expiresIn: number; urls: Record<string, string> }>("/api/media/urls", { ids, variant }).then((r) => r.urls),
   });
+
+const URL_GROUP = 20; // una petición por página de la lista (la API acepta hasta 50 ids)
+
+/**
+ * URLs firmadas para una lista (miniaturas). Se piden por grupos en el orden de la lista: en una
+ * lista que crece al final, los grupos ya pedidos no cambian y siguen en caché.
+ */
+export function usePhotoUrlMap(ids: (string | null | undefined)[], variant: "thumb" | "full" = "thumb") {
+  const present = ids.filter((x): x is string => !!x);
+  const groups: string[][] = [];
+  for (let i = 0; i < present.length; i += URL_GROUP) groups.push(present.slice(i, i + URL_GROUP));
+  return useQueries({
+    queries: groups.map((group) => ({
+      queryKey: ["photo-urls", variant, group],
+      staleTime: 8 * 60_000,
+      queryFn: () =>
+        api.post<{ expiresIn: number; urls: Record<string, string> }>("/api/media/urls", { ids: group, variant }).then((r) => r.urls),
+    })),
+    combine: (results) => Object.assign({}, ...results.map((r) => r.data ?? {})) as Record<string, string>,
+  });
+}

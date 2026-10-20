@@ -48,6 +48,9 @@ export default function TabsLayout() {
     <Tabs
       tabBar={wide ? (props) => <Sidebar {...props} /> : undefined}
       screenOptions={{
+        // Transición corta al cambiar de pestaña; el fondo evita un destello blanco en modo oscuro.
+        animation: wide ? "fade" : "shift",
+        sceneStyle: { backgroundColor: colors.bg },
         tabBarPosition: wide ? "left" : "bottom",
         tabBarActiveTintColor: colors.primaryDark,
         tabBarInactiveTintColor: colors.textMuted,
@@ -62,6 +65,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: "Inicio", tabBarIcon: icon("grid-outline") }} />
       <Tabs.Screen name="tools" options={{ title: "Herramientas", tabBarIcon: icon("hammer-outline") }} />
       <Tabs.Screen name="transfers" options={{ title: "Traslados", tabBarIcon: icon("swap-horizontal-outline") }} />
+      <Tabs.Screen name="locations" options={{ title: "Bodegas", headerTitle: "Bodegas y proyectos", tabBarIcon: icon("business-outline") }} />
       {/* El chofer no ve costos: sin permiso de reportes la pestaña no aparece. */}
       <Tabs.Screen
         name="reports"

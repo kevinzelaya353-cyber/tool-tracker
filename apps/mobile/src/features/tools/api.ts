@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ToolCreateInput, ToolStatus } from "@tt/shared";
+import type { ToolCreateInput, ToolStatus, ToolUpdateInput } from "@tt/shared";
 import { api } from "@/lib/api";
 import type { HistoryEvent, Page, Tool, ToolDetail } from "@/types/api";
 
@@ -47,19 +47,22 @@ export const useToolCategoryCounts = (filters: Omit<ToolFilters, "categoryId">, 
     queryFn: () => api.get<CategoryCount[]>("/api/tools/categories", { ...filters }),
   });
 
-/** Todas las herramientas de una ubicación (para el wizard de traslado; máx. 100 por página de API). */
+/** Todas las herramientas que cumplen los filtros, recorriendo las páginas (máx. 100 por página de API). */
+export async function fetchAllTools(filters: ToolFilters): Promise<Tool[]> {
+  const out: Tool[] = [];
+  for (let page = 1; ; page++) {
+    const res = await api.get<Page<Tool>>("/api/tools", { ...filters, page, pageSize: 100 });
+    out.push(...res.data);
+    if (page * res.pageSize >= res.total) return out;
+  }
+}
+
+/** Todas las herramientas de una ubicación (para el wizard de traslado). */
 export const useToolsAtLocation = (locationId?: string) =>
   useQuery({
     queryKey: toolKeys.atLocation(locationId),
     enabled: !!locationId,
-    queryFn: async () => {
-      const out: Tool[] = [];
-      for (let page = 1; ; page++) {
-        const res = await api.get<Page<Tool>>("/api/tools", { locationId, page, pageSize: 100 });
-        out.push(...res.data);
-        if (page * res.pageSize >= res.total) return out;
-      }
-    },
+    queryFn: () => fetchAllTools({ locationId }),
   });
 
 export const useTool = (id: string) =>
@@ -86,6 +89,18 @@ export function useCreateTool() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: toolKeys.all });
       qc.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+/** Edita los datos de la herramienta (incluida su categoría); solo se envían los campos cambiados. */
+export function useUpdateTool(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ToolUpdateInput) => api.patch<Tool>(`/api/tools/${id}`, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: toolKeys.all });
+      qc.invalidateQueries({ queryKey: ["reports"] }); // precio, fecha y categoría alimentan los reportes
     },
   });
 }

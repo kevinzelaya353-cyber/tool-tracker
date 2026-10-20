@@ -153,7 +153,7 @@ const useStyles = makeStyles(({ colors }) =>
     buttons: { flexDirection: "row", gap: space.sm },
     flex: { flex: 1 },
     grid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-    cell: { width: "31%", aspectRatio: 1 },
+    cell: { width: "31%", maxWidth: 120, aspectRatio: 1 }, // tres por fila en el teléfono; miniaturas en web
     img: { width: "100%", height: "100%", borderRadius: radius.md, backgroundColor: colors.neutralSoft },
     overlay: {
       ...StyleSheet.absoluteFill,

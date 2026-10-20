@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ModalSafeArea } from "@/components/ui/ModalSafeArea";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useDeletePhoto, usePhotoUrls } from "@/features/media/api";
 import { confirmAsync, notify } from "@/lib/dialogs";
@@ -46,7 +46,7 @@ export function PhotoStrip({ ids }: { ids: string[] }) {
       </ScrollView>
 
       <Modal visible={!!openId} transparent animationType="fade" onRequestClose={() => setOpenId(null)}>
-        <SafeAreaView style={styles.viewer}>
+        <ModalSafeArea style={styles.viewer} statusBar="light">
           <View style={styles.bar}>
             {canDelete && openId ? (
               <Pressable
@@ -71,7 +71,7 @@ export function PhotoStrip({ ids }: { ids: string[] }) {
           ) : (
             <ActivityIndicator color="#fff" style={styles.full} />
           )}
-        </SafeAreaView>
+        </ModalSafeArea>
       </Modal>
     </>
   );

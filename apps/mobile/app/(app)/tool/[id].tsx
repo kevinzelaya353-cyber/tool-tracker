@@ -9,6 +9,7 @@ import { ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { useTool, useToolHistory } from "@/features/tools/api";
+import { ToolQrCard } from "@/features/tools/ToolQrCard";
 import { EVENT_ACTION, formatDateUTC, formatMoney } from "@/lib/format";
 import { space, makeStyles, useTheme } from "@/theme";
 
@@ -45,10 +46,19 @@ export default function ToolDetailScreen() {
         <View style={styles.facts}>
           <Fact label="Ubicación" value={trip ? `En camino a ${trip.toLocation.name}` : (t.currentLocation?.name ?? "—")} />
           <Fact label="A cargo de" value={t.currentCustodian?.name ?? "—"} />
-          <Fact label="Serie" value={t.serial ?? "—"} />
+          <Fact label="Serie" value={t.serial || "—"} />
           <Fact label="Compra" value={`${formatDateUTC(t.purchaseDate)} · ${formatMoney(t.purchasePrice)}`} />
           {t.supplier ? <Fact label="Proveedor" value={t.supplier} /> : null}
         </View>
+        {can("tools:write") ? (
+          <Button
+            title="Editar datos"
+            icon="create-outline"
+            variant="secondary"
+            compact
+            onPress={() => router.push({ pathname: "/tool/edit", params: { id: t.id } })}
+          />
+        ) : null}
       </Card>
 
       {trip ? (
@@ -77,6 +87,8 @@ export default function ToolDetailScreen() {
           ))}
         </View>
       ) : null}
+
+      <ToolQrCard label={{ code: t.code, title: `${t.category.name} ${t.brand}${t.model ? ` ${t.model}` : ""}` }} />
 
       <Text style={font.h2}>Historial</Text>
       <ErrorBanner error={history.error} />

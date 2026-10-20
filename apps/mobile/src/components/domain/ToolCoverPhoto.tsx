@@ -97,7 +97,8 @@ const useStyles = makeStyles(({ colors }) =>
   StyleSheet.create({
     wrap: { gap: space.sm },
     actions: { gap: space.xs },
-    img: { width: "100%", aspectRatio: 4 / 3, borderRadius: radius.md, backgroundColor: colors.neutralSoft },
+    // Tope de ancho: en web/tableta el 100% del ancho la volvía enorme; en el teléfono no se nota.
+    img: { width: "100%", maxWidth: 420, alignSelf: "center", aspectRatio: 4 / 3, borderRadius: radius.md, backgroundColor: colors.neutralSoft },
     center: { alignItems: "center", justifyContent: "center", gap: space.xs },
   }),
 );

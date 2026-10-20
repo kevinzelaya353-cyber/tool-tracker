@@ -4,6 +4,7 @@ import { passwordSchema, usernameSchema } from "@tt/shared";
 
 const prisma = new PrismaClient();
 
+// Las más comunes en obra. El seed no borra ni renombra: se puede volver a ejecutar para agregar nuevas.
 const CATEGORIES = [
   "Taladro",
   "Rotomartillo",
@@ -14,6 +15,27 @@ const CATEGORIES = [
   "Nivel láser",
   "Compresor",
   "Soldadora",
+  "Atornillador",
+  "Llave de impacto",
+  "Sierra caladora",
+  "Sierra ingleteadora",
+  "Cortadora de concreto",
+  "Cortadora de cerámica",
+  "Lijadora",
+  "Pistola de calor",
+  "Mezcladora de concreto",
+  "Vibrador de concreto",
+  "Bailarina (apisonador)",
+  "Placa compactadora",
+  "Generador eléctrico",
+  "Bomba de agua",
+  "Hidrolavadora",
+  "Nivel óptico",
+  "Estación total",
+  "Andamio",
+  "Escalera",
+  "Carretilla",
+  "Herramienta manual",
   "Otro",
 ];
 

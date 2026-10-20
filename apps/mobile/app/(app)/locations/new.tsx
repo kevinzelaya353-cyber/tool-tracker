@@ -10,6 +10,7 @@ import { TextField } from "@/components/ui/TextField";
 import { useCreateLocation, useLocations, useUpdateLocation } from "@/features/catalog/api";
 import type { LatLng } from "@/features/maps/leaflet-html";
 import { LocationPicker } from "@/features/maps/LocationPicker";
+import { useConfirmDiscard } from "@/lib/useConfirmDiscard";
 import { space, useTheme } from "@/theme";
 
 /** Alta de un proyecto (obra) o bodega con su dirección y punto en el mapa; con ?id= edita una existente. */
@@ -37,11 +38,24 @@ export default function NewLocationScreen() {
     setLoaded(true);
   }, [existing, loaded]);
 
-  const done = () => (router.canGoBack() ? router.back() : router.replace("/locations"));
+  const initialPoint = existing?.latitude != null && existing.longitude != null ? { lat: existing.latitude, lng: existing.longitude } : null;
+  const dirty =
+    loaded &&
+    (name !== (existing?.name ?? "") ||
+      address !== (existing?.address ?? "") ||
+      (!!existing && type !== existing.type) ||
+      point?.lat !== initialPoint?.lat ||
+      point?.lng !== initialPoint?.lng);
+  const leave = useConfirmDiscard(dirty);
+
+  const done = () => leave(() => (router.canGoBack() ? router.back() : router.replace("/locations")));
   const submit = () => {
     const coords = { latitude: point?.lat ?? null, longitude: point?.lng ?? null };
     if (id) {
-      update.mutate({ name: name.trim(), address: address.trim() || undefined, ...coords }, { onSuccess: done });
+      update.mutate(
+        { name: name.trim(), address: address.trim() || undefined, ...coords, ...(type !== existing?.type && { type }) },
+        { onSuccess: done },
+      );
     } else {
       create.mutate(
         {
@@ -72,15 +86,14 @@ export default function NewLocationScreen() {
     >
       <Stack.Screen options={{ title: id ? `Editar ${noun}` : "Nuevo proyecto o bodega" }} />
       <ErrorBanner error={mutation.error} />
-      {id ? null : (
-        <View style={styles.types}>
-          <Text style={font.label}>Tipo</Text>
-          <View style={styles.row}>
-            <Chip label="Proyecto" selected={type === "PROYECTO"} onPress={() => setType("PROYECTO")} />
-            <Chip label="Bodega" selected={type === "BODEGA"} onPress={() => setType("BODEGA")} />
-          </View>
+      <View style={styles.types}>
+        <Text style={font.label}>Tipo</Text>
+        <View style={styles.row}>
+          <Chip label="Proyecto" selected={type === "PROYECTO"} onPress={() => setType("PROYECTO")} />
+          <Chip label="Bodega" selected={type === "BODEGA"} onPress={() => setType("BODEGA")} />
         </View>
-      )}
+        {id ? <Text style={font.small}>El tipo solo puede cambiarse si no tiene herramientas ni traslados en camino.</Text> : null}
+      </View>
       <TextField
         label="Nombre"
         value={name}

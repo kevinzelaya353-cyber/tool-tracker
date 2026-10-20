@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth/AuthProvider";
 import { useLocations } from "@/features/catalog/api";
 import { makeStyles, space, useTheme } from "@/theme";
 
-/** Proyectos y bodegas activos con su dirección; desde aquí se registran nuevos. */
+/** Pestaña Bodegas: bodegas y proyectos activos con su dirección; desde aquí se registran nuevos. */
 export default function LocationsScreen() {
   const styles = useStyles();
   const { colors, font } = useTheme();
@@ -19,8 +19,8 @@ export default function LocationsScreen() {
   if (locations.isLoading) return <Loading />;
   const all = locations.data ?? [];
   const sections = [
-    { title: "Proyectos", data: all.filter((l) => l.type === "PROYECTO") },
     { title: "Bodegas", data: all.filter((l) => l.type === "BODEGA") },
+    { title: "Proyectos", data: all.filter((l) => l.type === "PROYECTO") },
   ].filter((s) => s.data.length > 0);
 
   return (
@@ -32,7 +32,7 @@ export default function LocationsScreen() {
         refreshing={locations.isRefetching}
         onRefresh={locations.refetch}
         ListHeaderComponent={<ErrorBanner error={locations.error} />}
-        ListEmptyComponent={<EmptyState icon="business-outline" title="Aún no hay proyectos registrados" />}
+        ListEmptyComponent={<EmptyState icon="business-outline" title="Aún no hay bodegas ni proyectos registrados" />}
         renderSectionHeader={({ section }) => <Text style={[font.h2, styles.section]}>{section.title}</Text>}
         renderItem={({ item }) => (
           <Card style={styles.card} onPress={() => router.push({ pathname: "/tools", params: { locationId: item.id } })}>
@@ -68,7 +68,7 @@ export default function LocationsScreen() {
           </Card>
         )}
       />
-      {can("catalog:write") ? <Fab onPress={() => router.push("/locations/new")} accessibilityLabel="Registrar proyecto" /> : null}
+      {can("catalog:write") ? <Fab onPress={() => router.push("/locations/new")} accessibilityLabel="Registrar bodega o proyecto" /> : null}
     </View>
   );
 }

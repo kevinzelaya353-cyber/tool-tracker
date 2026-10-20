@@ -3,8 +3,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/Button";
+import { ModalSafeArea } from "@/components/ui/ModalSafeArea";
 import { radius, space, makeStyles, useTheme } from "@/theme";
 import type { LocalImage } from "../media/api";
 import { compressImage } from "./compress";
@@ -87,7 +87,7 @@ export function MultiPhotoCapture({ visible, remaining, onClose, onDone }: Props
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={close} presentationStyle="fullScreen">
-      <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
+      <ModalSafeArea style={styles.root} statusBar="light">
         {!permission ? (
           <ActivityIndicator style={styles.flex} color="#fff" />
         ) : !permission.granted ? (
@@ -158,7 +158,7 @@ export function MultiPhotoCapture({ visible, remaining, onClose, onDone }: Props
             </View>
           </>
         )}
-      </SafeAreaView>
+      </ModalSafeArea>
     </Modal>
   );
 }
