@@ -25,6 +25,10 @@ const TRANSITIONS: Record<Exclude<EventType, "PURCHASE">, Transition> = {
   LOSS: { from: ["BODEGA", "EN_PROYECTO"], to: "EXTRAVIADA" },
   RECOVERY: { from: ["EXTRAVIADA"], to: "BODEGA" },
   DECOMMISSION: { from: ["DANADA", "EXTRAVIADA"], to: "DADA_DE_BAJA" },
+  // Herramientas rentadas: un nuevo período de alquiler la trae a una bodega o directo a un proyecto.
+  RENTAL_RECEIVE: { from: ["DEVUELTA"], to: (dest) => (dest === "BODEGA" ? "BODEGA" : "EN_PROYECTO") },
+  // Se devuelve al arrendador desde donde esté, también dañada (la diferencia queda documentada).
+  RENTAL_RETURN: { from: ["BODEGA", "EN_PROYECTO", "DANADA"], to: "DEVUELTA" },
 };
 
 /** Eventos que obligan a indicar una ubicación destino y de qué tipo debe ser. */
@@ -32,6 +36,7 @@ export const EVENT_REQUIRES_LOCATION: Partial<Record<EventType, LocationType | "
   TRANSFER: "ANY",
   MAINTENANCE_END: "BODEGA",
   RECOVERY: "BODEGA",
+  RENTAL_RECEIVE: "ANY",
 };
 
 export type TransitionResult =
@@ -79,4 +84,11 @@ export function availableEvents(current: ToolStatus): Exclude<EventType, "PURCHA
 
 export function isTerminal(status: ToolStatus): boolean {
   return availableEvents(status).length === 0;
+}
+
+/** Estados en los que la herramienta está físicamente con la empresa y se le puede reportar un daño. */
+const DAMAGE_REPORTABLE: readonly ToolStatus[] = ["BODEGA", "EN_PROYECTO", "EN_TRANSITO", "EN_MANTENIMIENTO", "DANADA"];
+
+export function canReportDamage(status: ToolStatus): boolean {
+  return DAMAGE_REPORTABLE.includes(status);
 }

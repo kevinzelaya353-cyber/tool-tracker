@@ -1,10 +1,14 @@
 import type {
+  DamageKind,
   EventType,
+  ToolCondition,
+  ToolOwnership,
   ItemOutcome,
   LocationType,
   Permission,
   PhotoStage,
   ReceptionMethod,
+  RentalStatus,
   Role,
   ToolStatus,
   TransferStatus,
@@ -78,6 +82,8 @@ export interface Tool {
   purchaseDate: string;
   supplier?: string | null;
   status: ToolStatus;
+  /** Ausente en APIs anteriores a los alquileres: se trata como propia. */
+  ownership?: ToolOwnership;
   statusChangedAt: string;
   category: Ref;
   currentLocation?: (Ref & { type: LocationType }) | null;
@@ -115,6 +121,8 @@ export interface HistoryEvent {
   reportedBy: Ref;
   location?: (Ref & { type: LocationType }) | null;
   photos: PhotoRef[];
+  /** Evento creado por un reporte de daño: sus fotos están en el reporte. */
+  damageReport?: { id: string; kind: DamageKind; photos: PhotoRef[] } | null;
   transfer?: {
     id: string;
     movedAt: string;
@@ -171,4 +179,59 @@ export interface UploadedPhoto {
   width: number;
   height: number;
   thumbUrl: string;
+}
+
+export interface DamageReport {
+  id: string;
+  toolId: string;
+  kind: DamageKind;
+  condition: ToolCondition;
+  /** Estado de la herramienta cuando se reportó. */
+  toolStatus: ToolStatus;
+  description: string;
+  notes?: string | null;
+  occurredAt: string;
+  createdAt: string;
+  reportedBy: Ref;
+  /** Incidencia de un período de alquiler. */
+  rental?: { id: string; lessor: string; status: RentalStatus } | null;
+  /** Si el reporte pasó la herramienta a DANADA. */
+  lifecycleEvent?: { id: string; fromStatus: ToolStatus | null; toStatus: ToolStatus } | null;
+  photos: { id: string }[];
+}
+
+export interface RentalSummary {
+  id: string;
+  lessor: string;
+  status: RentalStatus;
+  receivedAt: string;
+  expectedReturnAt?: string | null;
+  returnedAt?: string | null;
+  tool: { id: string; code: string; brand: string; model?: string | null; status: ToolStatus; category: Ref };
+  location: Ref & { type: LocationType };
+}
+
+export interface RentalDetail extends RentalSummary {
+  notes?: string | null;
+  receptionCondition: ToolCondition;
+  receptionDescription?: string | null;
+  receptionNotes?: string | null;
+  receivedBy: Ref;
+  returnCondition?: ToolCondition | null;
+  returnDescription?: string | null;
+  returnNotes?: string | null;
+  returnDifferences?: string | null;
+  returnedBy?: Ref | null;
+  photos: { id: string; stage: PhotoStage; createdAt: string }[];
+  incidents: DamageReport[];
+  /** Otros movimientos de la herramienta durante el período (traslados, mantenimiento…). */
+  events: {
+    id: string;
+    type: EventType;
+    occurredAt: string;
+    toStatus: ToolStatus;
+    description?: string | null;
+    reportedBy: Ref;
+    transfer?: { id: string; fromLocation: { name: string }; toLocation: { name: string } } | null;
+  }[];
 }

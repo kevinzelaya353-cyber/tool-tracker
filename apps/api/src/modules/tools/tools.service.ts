@@ -19,6 +19,7 @@ const LIST_INCLUDE = {
 function toolWhere(q: Partial<ToolListQuery>): Prisma.ToolWhereInput {
   return {
     status: q.status,
+    ownership: q.ownership,
     categoryId: q.categoryId,
     currentLocationId: q.locationId,
     ...(q.q && {
@@ -81,6 +82,8 @@ export class ToolsService {
         reportedBy: { select: { id: true, name: true } },
         location: { select: { id: true, name: true, type: true } },
         photos: { where: VISIBLE_PHOTO, select: { id: true, thumbKey: true } },
+        // Daño reportado con el formulario de daños: sus fotos van en el reporte, no en el evento.
+        damageReport: { select: { id: true, kind: true, photos: { where: VISIBLE_PHOTO, select: { id: true, thumbKey: true } } } },
         transfer: {
           select: {
             id: true,
@@ -144,6 +147,9 @@ export class ToolsService {
     return this.prisma.$transaction(async (tx) => {
       const before = await tx.tool.findUnique({ where: { id } });
       if (!before) throw AppError.notFound("Herramienta");
+      if (before.ownership === "RENTADA" && input.purchasePrice !== undefined && Number(input.purchasePrice) !== 0) {
+        throw AppError.badRequest("RENTED_NO_PRICE", "Una herramienta rentada no tiene precio de compra");
+      }
 
       if (input.purchaseDate) {
         const first = await tx.lifecycleEvent.findFirst({

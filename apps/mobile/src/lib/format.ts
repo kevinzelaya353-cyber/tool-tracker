@@ -38,6 +38,8 @@ export const EVENT_LABEL: Record<EventType, string> = {
   LOSS: "Reporte de extravío",
   RECOVERY: "Recuperada",
   DECOMMISSION: "Dada de baja",
+  RENTAL_RECEIVE: "Recibida en alquiler",
+  RENTAL_RETURN: "Devuelta al arrendador",
 };
 
 /** Texto del botón de acción en el detalle de la herramienta. */

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ToolCreateInput, ToolStatus, ToolUpdateInput } from "@tt/shared";
+import type { ToolCreateInput, ToolOwnership, ToolStatus, ToolUpdateInput } from "@tt/shared";
 import { api } from "@/lib/api";
 import type { HistoryEvent, Page, Tool, ToolDetail } from "@/types/api";
 
@@ -8,6 +8,7 @@ export interface ToolFilters {
   status?: ToolStatus;
   locationId?: string;
   categoryId?: string;
+  ownership?: ToolOwnership;
 }
 
 export const toolKeys = {
@@ -65,8 +66,8 @@ export const useToolsAtLocation = (locationId?: string) =>
     queryFn: () => fetchAllTools({ locationId }),
   });
 
-export const useTool = (id: string) =>
-  useQuery({ queryKey: toolKeys.detail(id), queryFn: () => api.get<ToolDetail>(`/api/tools/${id}`) });
+export const useTool = (id: string, enabled = true) =>
+  useQuery({ queryKey: toolKeys.detail(id), enabled: enabled && !!id, queryFn: () => api.get<ToolDetail>(`/api/tools/${id}`) });
 
 export const useToolHistory = (id: string) =>
   useQuery({ queryKey: toolKeys.history(id), queryFn: () => api.get<HistoryEvent[]>(`/api/tools/${id}/history`) });

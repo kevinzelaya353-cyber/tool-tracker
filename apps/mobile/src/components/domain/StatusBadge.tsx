@@ -4,11 +4,12 @@ import { radius, space, useTheme } from "@/theme";
 
 export function StatusBadge({ status }: { status: ToolStatus }) {
   const { statusColors } = useTheme();
-  const c = statusColors[status];
+  // Un estado que esta versión de la app no conoce (API más nueva) se muestra neutro, sin romper la pantalla.
+  const c = statusColors[status] ?? statusColors.DADA_DE_BAJA;
   return (
     <View style={[styles.badge, { backgroundColor: c.bg }]}>
       <View style={[styles.dot, { backgroundColor: c.fg }]} />
-      <Text style={[styles.text, { color: c.fg }]}>{TOOL_STATUS_LABEL[status].replace(" (disponible)", "")}</Text>
+      <Text style={[styles.text, { color: c.fg }]}>{(TOOL_STATUS_LABEL[status] ?? status).replace(" (disponible)", "")}</Text>
     </View>
   );
 }

@@ -1,13 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ErrorScreen } from "@/components/ui/ErrorScreen";
 import { Loading } from "@/components/ui/Feedback";
 import { AuthProvider, useAuth } from "@/features/auth/AuthProvider";
 import { ThemeProvider } from "@/features/theme/ThemeProvider";
 import { ApiError } from "@/lib/api";
+import { installCrashRecorder, takeLastCrash } from "@/lib/crashLog";
+import { notify } from "@/lib/dialogs";
 import { useTheme } from "@/theme";
+
+installCrashRecorder();
+
+/** Último recurso: un error al dibujar cualquier pantalla muestra esto en vez de cerrar la app. */
+export function ErrorBoundary(props: ErrorBoundaryProps) {
+  return <ErrorScreen {...props} />;
+}
 
 /** Pasa los colores del tema a la navegación (fondos de pantalla y transiciones) y a la barra de estado. */
 function ThemedNavigation({ children }: { children: ReactNode }) {
@@ -54,6 +64,20 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  // Si la sesión anterior terminó por un error fatal, se muestra una vez para poder reportarlo.
+  useEffect(() => {
+    const crash = takeLastCrash();
+    if (crash?.fatal) {
+      void notify(
+        "La app se cerró inesperadamente",
+        `La última vez se cerró por este error. Si se repite, envíalo a soporte:
+
+${crash.message}
+(${crash.at}, ${crash.version})`,
+      );
+    }
+  }, []);
+
   const [queryClient] = useState(
     () =>
       new QueryClient({

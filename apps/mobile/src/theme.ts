@@ -105,6 +105,7 @@ function buildTheme(scheme: ColorScheme) {
     DANADA: { fg: colors.danger, bg: colors.dangerSoft },
     EXTRAVIADA: { fg: colors.lost, bg: colors.lostSoft },
     DADA_DE_BAJA: { fg: colors.textMuted, bg: colors.neutralSoft },
+    DEVUELTA: { fg: colors.textMuted, bg: colors.neutralSoft },
   };
   return {
     scheme,

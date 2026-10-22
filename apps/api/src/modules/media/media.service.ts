@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { can, type Role } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
+import { UNATTACHED_PHOTO } from "../../lib/tx-helpers.js";
 import { AppError } from "../../lib/errors.js";
 import { processImage, type ProcessedImage } from "./image.js";
 import type { ObjectStorage } from "./storage.js";
@@ -112,6 +113,8 @@ export class MediaService {
           { uploadedById: actorId },
           { transferId: { not: null } },
           { lifecycleEventId: { not: null } },
+          { damageReportId: { not: null } },
+          { rentalId: { not: null } },
           { toolId: { not: null } },
         ],
       },
@@ -135,7 +138,7 @@ export class MediaService {
   async discard(id: string, ctx: ActorCtx) {
     const photo = await this.prisma.photo.findUnique({ where: { id } });
     if (!photo || photo.hiddenAt) throw AppError.notFound("Foto");
-    if (photo.transferId || photo.lifecycleEventId || photo.toolId) {
+    if (photo.transferId || photo.lifecycleEventId || photo.damageReportId || photo.rentalId || photo.toolId) {
       if (!canHidePhotos(ctx.role)) throw AppError.forbidden();
       await this.prisma.$transaction(async (tx) => {
         await tx.photo.update({ where: { id }, data: { hiddenAt: new Date() } });
@@ -146,7 +149,13 @@ export class MediaService {
           action: "photo.hide",
           entity: "photo",
           entityId: id,
-          diff: { transferId: photo.transferId, lifecycleEventId: photo.lifecycleEventId, toolId: photo.toolId },
+          diff: {
+            transferId: photo.transferId,
+            lifecycleEventId: photo.lifecycleEventId,
+            damageReportId: photo.damageReportId,
+            rentalId: photo.rentalId,
+            toolId: photo.toolId,
+          },
           ip: ctx.ip,
         });
       });
@@ -154,7 +163,7 @@ export class MediaService {
     }
     if (photo.uploadedById !== ctx.actorId) throw AppError.notFound("Foto");
     const { count } = await this.prisma.photo.deleteMany({
-      where: { id, transferId: null, lifecycleEventId: null, toolId: null },
+      where: { id, ...UNATTACHED_PHOTO },
     });
     if (count === 1) await this.storage.remove([photo.storageKey, ...(photo.thumbKey ? [photo.thumbKey] : [])]);
   }
@@ -163,7 +172,7 @@ export class MediaService {
   async purgeOrphans(): Promise<number> {
     const cutoff = new Date(Date.now() - this.cfg.orphanTtlHours * 3_600_000);
     const orphans = await this.prisma.photo.findMany({
-      where: { transferId: null, lifecycleEventId: null, toolId: null, createdAt: { lt: cutoff } },
+      where: { ...UNATTACHED_PHOTO, createdAt: { lt: cutoff } },
       select: { id: true, storageKey: true, thumbKey: true },
       take: 500,
     });
@@ -171,7 +180,7 @@ export class MediaService {
 
     // Primero BD (con la misma condición, por si alguna se asoció mientras tanto), luego objetos.
     const ids = orphans.map((o) => o.id);
-    await this.prisma.photo.deleteMany({ where: { id: { in: ids }, transferId: null, lifecycleEventId: null, toolId: null } });
+    await this.prisma.photo.deleteMany({ where: { id: { in: ids }, ...UNATTACHED_PHOTO } });
     const stillExisting = new Set((await this.prisma.photo.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((p) => p.id));
     const removed = orphans.filter((o) => !stillExisting.has(o.id));
     await this.storage.remove(removed.flatMap((o) => [o.storageKey, ...(o.thumbKey ? [o.thumbKey] : [])]));

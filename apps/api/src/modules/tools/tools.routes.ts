@@ -14,13 +14,14 @@ import {
 import { AppError } from "../../lib/errors.js";
 import { authorize, currentUser } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
+import type { DamageService } from "../damage/damage.service.js";
 import type { ToolsService } from "./tools.service.js";
 
 const idParams = z.object({ id });
 const codeParams = z.object({ code: z.string().trim().regex(/^[A-Za-z0-9-]{3,30}$/) });
 
 /** Montar detrás de `authenticate`. */
-export function toolsRouter(svc: ToolsService) {
+export function toolsRouter(svc: ToolsService, damage: DamageService) {
   const r = Router();
   const read = authorize("tools:read");
   const write = authorize("tools:write");
@@ -46,6 +47,11 @@ export function toolsRouter(svc: ToolsService) {
 
   r.get("/:id/history", read, validate("params", idParams), async (_req, res) => {
     res.json(await svc.history(toolId(res)));
+  });
+
+  // Historial de daños: cada reporte con sus propias fotos y observaciones, del más reciente al más antiguo.
+  r.get("/:id/damage-reports", read, validate("params", idParams), async (_req, res) => {
+    res.json(await damage.listForTool(toolId(res)));
   });
 
   r.post("/", write, validate("body", toolCreateSchema), async (req, res) => {
