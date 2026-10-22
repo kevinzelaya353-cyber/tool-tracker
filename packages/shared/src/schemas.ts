@@ -1,5 +1,19 @@
 import { z } from "zod";
-import { ITEM_OUTCOME, LOCATION_TYPE, MANUAL_EVENT_TYPE, PHOTO_STAGE, ROLE, TOOL_STATUS, TRANSFER_STATUS, type Role } from "./enums.js";
+import {
+  DAMAGE_KIND,
+  DAMAGE_MAX_PHOTOS,
+  ITEM_OUTCOME,
+  LOCATION_TYPE,
+  MANUAL_EVENT_TYPE,
+  RENTAL_MAX_PHOTOS,
+  RENTAL_STATUS,
+  ROLE,
+  TOOL_CONDITION,
+  TOOL_OWNERSHIP,
+  TOOL_STATUS,
+  TRANSFER_STATUS,
+  type Role,
+} from "./enums.js";
 
 // ---------- Primitivos ----------
 
@@ -181,6 +195,7 @@ export const toolListQuerySchema = z.object({
   status: z.enum(TOOL_STATUS).optional(),
   categoryId: id.optional(),
   locationId: id.optional(),
+  ownership: z.enum(TOOL_OWNERSHIP).optional(),
   q: z.string().trim().max(80).refine(noNul, "Caracteres no válidos").optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -251,7 +266,7 @@ export const transferReceiveSchema = z
 /** Fotos agregadas después de registrar el traslado (p. ej. al llegar al destino). */
 export const transferPhotosSchema = z.object({
   photoIds: z.array(id).min(1).max(20),
-  stage: z.enum(PHOTO_STAGE),
+  stage: z.enum(["ENTREGA", "RECEPCION"]), // DEVOLUCION es solo de alquileres
 });
 
 export const transferListQuerySchema = z.object({
@@ -276,6 +291,83 @@ export const lifecycleEventCreateSchema = z.object({
   description: optionalText(500),
   locationId: id.optional(), // obligatorio para MAINTENANCE_END y RECOVERY (bodega)
   photoIds: z.array(id).max(20).default([]),
+});
+
+// ---------- Reportes de daño ----------
+
+const photoIdList = (max: number) =>
+  z
+    .array(id)
+    .max(max, `Máximo ${max} fotos`)
+    .refine((ids) => new Set(ids).size === ids.length, "Foto repetida")
+    .default([]);
+
+/**
+ * Cada reporte es un registro nuevo (nunca reemplaza a los anteriores). `id` lo genera la app: si la
+ * petición se reintenta por un corte de red, la API devuelve el mismo reporte en vez de duplicarlo.
+ * Si la herramienta tiene un alquiler activo, el reporte queda como incidencia de ese alquiler.
+ */
+export const damageReportCreateSchema = z.object({
+  id,
+  toolId: id,
+  occurredAt: pastOrNow,
+  kind: z.enum(DAMAGE_KIND),
+  condition: z.enum(TOOL_CONDITION),
+  description: shortText(500),
+  notes: optionalText(500),
+  photoIds: photoIdList(DAMAGE_MAX_PHOTOS),
+});
+
+// ---------- Alquileres ----------
+
+const futureOk = z.coerce.date();
+
+/** Datos de una herramienta rentada que aún no existe en el sistema (se da de alta al recibirla). */
+export const rentalNewToolSchema = toolCreateSchema
+  .pick({ code: true, categoryId: true, brand: true, model: true, serial: true })
+  .extend({ photoId: id.optional() });
+
+/**
+ * Recepción de una herramienta rentada: abre un período de alquiler. Con `tool` se da de alta;
+ * con `toolId`, una herramienta rentada ya conocida (devuelta en un período anterior) vuelve a llegar.
+ */
+export const rentalCreateSchema = z
+  .object({
+    id,
+    toolId: id.optional(),
+    tool: rentalNewToolSchema.optional(),
+    lessor: shortText(120),
+    receivedAt: pastOrNow,
+    expectedReturnAt: futureOk.optional(),
+    locationId: id,
+    notes: optionalText(500),
+    receptionCondition: z.enum(TOOL_CONDITION),
+    receptionDescription: optionalText(500),
+    receptionNotes: optionalText(500),
+    photoIds: photoIdList(RENTAL_MAX_PHOTOS),
+  })
+  .refine((r) => !!r.toolId !== !!r.tool, { message: "Indica una herramienta existente o los datos de una nueva", path: ["toolId"] })
+  .refine((r) => !r.expectedReturnAt || r.expectedReturnAt.getTime() >= r.receivedAt.getTime() - 86_400_000, {
+    message: "La devolución prevista no puede ser anterior a la recepción",
+    path: ["expectedReturnAt"],
+  });
+
+/** Devolución al arrendador: cierra el período. La evidencia de recepción no se toca. */
+export const rentalReturnSchema = z.object({
+  returnedAt: pastOrNow,
+  returnCondition: z.enum(TOOL_CONDITION),
+  returnDescription: optionalText(500),
+  returnNotes: optionalText(500),
+  /** Qué cambió respecto a cómo se recibió (golpes nuevos, piezas faltantes…). */
+  differences: optionalText(500),
+  photoIds: photoIdList(RENTAL_MAX_PHOTOS),
+});
+
+export const rentalListQuerySchema = z.object({
+  toolId: id.optional(),
+  status: z.enum(RENTAL_STATUS).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 // ---------- Reportes ----------
@@ -324,5 +416,9 @@ export type VehicleUpdateInput = z.infer<typeof vehicleUpdateSchema>;
 export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>;
 export type CatalogListQuery = z.infer<typeof catalogListQuerySchema>;
 export type LifecycleEventCreateInput = z.infer<typeof lifecycleEventCreateSchema>;
+export type DamageReportCreateInput = z.infer<typeof damageReportCreateSchema>;
+export type RentalCreateInput = z.infer<typeof rentalCreateSchema>;
+export type RentalReturnInput = z.infer<typeof rentalReturnSchema>;
+export type RentalListQuery = z.infer<typeof rentalListQuerySchema>;
 export type ReportRangeQuery = z.infer<typeof reportRangeQuerySchema>;
 export type ReportFilterQuery = z.infer<typeof reportFilterQuerySchema>;

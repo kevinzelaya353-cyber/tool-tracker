@@ -29,9 +29,19 @@ export async function lockTools(tx: Tx, ids: string[]): Promise<LockedTool[]> {
   return rows;
 }
 
+/** Una foto subida que todavía no es evidencia de nada (la purga borra las que quedan así). */
+export const UNATTACHED_PHOTO = {
+  transferId: null,
+  lifecycleEventId: null,
+  damageReportId: null,
+  rentalId: null,
+  toolId: null,
+} satisfies Prisma.PhotoWhereInput;
+
 /**
- * Asocia fotos ya subidas (fase 4: /media) a un traslado o evento.
- * Solo se aceptan fotos del mismo usuario que aún no estén asociadas a nada.
+ * Asocia fotos ya subidas (/media) a un traslado, evento, reporte de daño, alquiler o herramienta.
+ * Solo se aceptan fotos del mismo usuario que aún no estén asociadas a nada: así una foto ya
+ * usada como evidencia (p. ej. de una recepción) nunca se reasigna ni se sobrescribe.
  */
 export async function attachPhotos(
   tx: Tx,
@@ -40,11 +50,13 @@ export async function attachPhotos(
   target:
     | { transferId: string; stage: PhotoStage; toolId?: never }
     | { lifecycleEventId: string; toolId: string }
+    | { damageReportId: string; toolId: string }
+    | { rentalId: string; toolId: string; stage: Extract<PhotoStage, "RECEPCION" | "DEVOLUCION"> }
     | { toolId: string; transferId?: never; lifecycleEventId?: never },
 ): Promise<void> {
   if (photoIds.length === 0) return;
   const { count } = await tx.photo.updateMany({
-    where: { id: { in: photoIds }, uploadedById: uploaderId, transferId: null, lifecycleEventId: null, toolId: null },
+    where: { id: { in: photoIds }, uploadedById: uploaderId, ...UNATTACHED_PHOTO },
     data: target,
   });
   if (count !== new Set(photoIds).size) {

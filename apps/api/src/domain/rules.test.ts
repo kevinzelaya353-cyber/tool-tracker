@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkLifecycleEvent, checkTransfer, type LockedTool } from "./rules.js";
+import { checkDamageReport, checkLifecycleEvent, checkRentalEvent, checkTransfer, type LockedTool } from "./rules.js";
 
 const BODEGA = "loc-bodega";
 const OBRA = "loc-obra";
@@ -99,6 +99,64 @@ describe("checkLifecycleEvent", () => {
       occurredAt: new Date("2026-01-05T00:00:00Z"),
       hasCost: false,
     });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("checkDamageReport", () => {
+  const at = new Date("2026-03-01T00:00:00Z");
+
+  it("una herramienta ya dañada admite reportes nuevos sin cambiar de estado", () => {
+    expect(checkDamageReport(tool({ status: "DANADA" }), { occurredAt: at, condition: "NO_OPERATIVA" })).toEqual({
+      ok: true,
+      marksDamaged: false,
+    });
+  });
+
+  it("si no funciona, la pasa a DANADA", () => {
+    expect(checkDamageReport(tool({ status: "EN_PROYECTO" }), { occurredAt: at, condition: "NO_OPERATIVA" })).toEqual({
+      ok: true,
+      marksDamaged: true,
+    });
+  });
+
+  it("un detalle menor no cambia el estado ni exige orden cronológico", () => {
+    const late = tool({ lastEventAt: new Date("2026-04-01T00:00:00Z") });
+    expect(checkDamageReport(late, { occurredAt: at, condition: "CON_DETALLES" })).toEqual({ ok: true, marksDamaged: false });
+  });
+
+  it("si cambia el estado, no puede ser anterior al último movimiento", () => {
+    const late = tool({ lastEventAt: new Date("2026-04-01T00:00:00Z") });
+    const r = checkDamageReport(late, { occurredAt: at, condition: "NO_OPERATIVA" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.violation.code).toBe("OUT_OF_ORDER");
+  });
+
+  it("nunca antes de la compra", () => {
+    const r = checkDamageReport(tool(), { occurredAt: new Date("2025-12-31T00:00:00Z"), condition: "BUENO" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.violation.code).toBe("BEFORE_PURCHASE");
+  });
+
+  it.each(["EXTRAVIADA", "DADA_DE_BAJA", "DEVUELTA"] as const)("rechaza reportes de una herramienta %s", (status) => {
+    const r = checkDamageReport(tool({ status }), { occurredAt: at, condition: "BUENO" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.violation.code).toBe("NOT_REPORTABLE");
+  });
+});
+
+describe("checkRentalEvent", () => {
+  const at = new Date("2026-03-01T00:00:00Z");
+
+  it("devolver la deja DEVUELTA y volver a recibirla la coloca según el destino", () => {
+    expect(checkRentalEvent(tool({ status: "EN_PROYECTO" }), { type: "RENTAL_RETURN", occurredAt: at })).toEqual({ ok: true, to: "DEVUELTA" });
+    expect(
+      checkRentalEvent(tool({ status: "DEVUELTA", currentLocationId: null }), { type: "RENTAL_RECEIVE", occurredAt: at, destinationType: "PROYECTO" }),
+    ).toEqual({ ok: true, to: "EN_PROYECTO" });
+  });
+
+  it("no se devuelve en tránsito", () => {
+    const r = checkRentalEvent(tool({ status: "EN_TRANSITO" }), { type: "RENTAL_RETURN", occurredAt: at });
     expect(r.ok).toBe(false);
   });
 });

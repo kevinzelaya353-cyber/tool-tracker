@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableEvents, isTerminal, resolveTransition } from "./state-machine.js";
+import { availableEvents, canReportDamage, isTerminal, resolveTransition } from "./state-machine.js";
 
 describe("resolveTransition", () => {
   it("bodega → proyecto deja la herramienta EN_PROYECTO", () => {
@@ -82,5 +82,43 @@ describe("traslado con chofer", () => {
     for (const s of ["DANADA", "EN_MANTENIMIENTO", "EXTRAVIADA", "DADA_DE_BAJA"] as const) {
       expect(resolveTransition(s, "DISPATCH").ok).toBe(false);
     }
+  });
+});
+
+describe("alquileres", () => {
+  it("una herramienta devuelta solo puede volver a recibirse en un nuevo alquiler", () => {
+    expect(availableEvents("DEVUELTA")).toEqual(["RENTAL_RECEIVE"]);
+    expect(isTerminal("DEVUELTA")).toBe(false);
+  });
+
+  it("al recibirla queda en bodega o directo en el proyecto", () => {
+    expect(resolveTransition("DEVUELTA", "RENTAL_RECEIVE", "BODEGA")).toEqual({ ok: true, to: "BODEGA" });
+    expect(resolveTransition("DEVUELTA", "RENTAL_RECEIVE", "PROYECTO")).toEqual({ ok: true, to: "EN_PROYECTO" });
+    const r = resolveTransition("DEVUELTA", "RENTAL_RECEIVE");
+    expect(r.ok).toBe(false);
+  });
+
+  it.each(["BODEGA", "EN_PROYECTO", "DANADA"] as const)("se puede devolver desde %s", (status) => {
+    expect(resolveTransition(status, "RENTAL_RETURN")).toEqual({ ok: true, to: "DEVUELTA" });
+  });
+
+  it.each(["EN_TRANSITO", "EXTRAVIADA", "DADA_DE_BAJA", "DEVUELTA"] as const)("no se puede devolver desde %s", (status) => {
+    expect(resolveTransition(status, "RENTAL_RETURN").ok).toBe(false);
+  });
+
+  it("una herramienta devuelta no se traslada ni se reporta", () => {
+    expect(resolveTransition("DEVUELTA", "TRANSFER", "PROYECTO").ok).toBe(false);
+    expect(resolveTransition("DEVUELTA", "DAMAGE").ok).toBe(false);
+  });
+});
+
+describe("canReportDamage", () => {
+  it("permite reportar daños nuevos aunque ya esté dañada", () => {
+    expect(canReportDamage("DANADA")).toBe(true);
+    expect(canReportDamage("EN_TRANSITO")).toBe(true);
+  });
+
+  it.each(["EXTRAVIADA", "DADA_DE_BAJA", "DEVUELTA"] as const)("no aplica a una herramienta %s", (status) => {
+    expect(canReportDamage(status)).toBe(false);
   });
 });

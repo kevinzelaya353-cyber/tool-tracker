@@ -1,9 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, Stack } from "expo-router";
+import { router, Stack, type ErrorBoundaryProps } from "expo-router";
 import { Pressable } from "react-native";
+import { ErrorScreen } from "@/components/ui/ErrorScreen";
 import { space, useTheme } from "@/theme";
 
 const goHome = () => router.dismissTo("/");
+
+/** Un error al dibujar una pantalla de la app no la cierra: se puede reintentar o volver al inicio. */
+export function ErrorBoundary(props: ErrorBoundaryProps) {
+  return <ErrorScreen {...props} onHome={goHome} />;
+}
 
 /**
  * Atrás siempre visible: el botón automático desaparece cuando no hay historial
@@ -52,6 +58,11 @@ export default function AppLayout() {
       <Stack.Screen name="tool/new" options={{ title: "Nueva herramienta", presentation: "modal" }} />
       <Stack.Screen name="tool/edit" options={{ title: "Editar herramienta", presentation: "modal" }} />
       <Stack.Screen name="event/new" options={{ title: "Registrar evento", presentation: "modal" }} />
+      <Stack.Screen name="damage/new" options={{ title: "Reportar daño", presentation: "modal" }} />
+      <Stack.Screen name="rentals/index" options={{ title: "Herramientas rentadas" }} />
+      <Stack.Screen name="rental/new" options={{ title: "Recibir herramienta rentada" }} />
+      <Stack.Screen name="rental/[id]" options={{ title: "Alquiler" }} />
+      <Stack.Screen name="rental/return" options={{ title: "Registrar devolución" }} />
       <Stack.Screen name="transfer/new" options={{ title: "Nuevo traslado" }} />
       <Stack.Screen name="transfer/[id]" options={{ title: "Traslado" }} />
       <Stack.Screen name="transfer/receive" options={{ title: "Confirmar llegada" }} />

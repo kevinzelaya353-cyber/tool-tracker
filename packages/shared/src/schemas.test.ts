@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { money, pinSchema, transferCreateSchema, userCreateSchema, usernameSchema } from "./schemas.js";
+import {
+  damageReportCreateSchema,
+  money,
+  pinSchema,
+  rentalCreateSchema,
+  rentalReturnSchema,
+  transferCreateSchema,
+  transferPhotosSchema,
+  userCreateSchema,
+  usernameSchema,
+} from "./schemas.js";
 
 const base = () => ({
   fromLocationId: randomUUID(),
@@ -79,5 +89,86 @@ describe("userCreateSchema", () => {
   it("exige contraseña completa al administrador", () => {
     expect(userCreateSchema.safeParse({ ...user, role: "ADMIN", password: "4829" }).success).toBe(false);
     expect(userCreateSchema.safeParse({ ...user, role: "ADMIN", password: "Segura-12345" }).success).toBe(true);
+  });
+});
+
+describe("damageReportCreateSchema", () => {
+  const report = (photoIds: string[]) => ({
+    id: randomUUID(),
+    toolId: randomUUID(),
+    occurredAt: new Date().toISOString(),
+    kind: "GOLPE",
+    condition: "CON_DETALLES",
+    description: "Carcasa rajada",
+    photoIds,
+  });
+
+  it("acepta de 0 a 3 fotos", () => {
+    expect(damageReportCreateSchema.safeParse(report([])).success).toBe(true);
+    expect(damageReportCreateSchema.safeParse(report([randomUUID(), randomUUID(), randomUUID()])).success).toBe(true);
+  });
+
+  it("rechaza una cuarta foto", () => {
+    const r = damageReportCreateSchema.safeParse(report([randomUUID(), randomUUID(), randomUUID(), randomUUID()]));
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.path).toEqual(["photoIds"]);
+  });
+
+  it("rechaza fotos repetidas y exige descripción", () => {
+    const dup = randomUUID();
+    expect(damageReportCreateSchema.safeParse(report([dup, dup])).success).toBe(false);
+    expect(damageReportCreateSchema.safeParse({ ...report([]), description: "  " }).success).toBe(false);
+  });
+
+  it("exige el id generado por la app (evita duplicados al reintentar)", () => {
+    const { id: _id, ...rest } = report([]);
+    expect(damageReportCreateSchema.safeParse(rest).success).toBe(false);
+  });
+});
+
+describe("rentalCreateSchema", () => {
+  const rental = (extra: object) => ({
+    id: randomUUID(),
+    lessor: "Rentas del Norte",
+    receivedAt: new Date().toISOString(),
+    locationId: randomUUID(),
+    receptionCondition: "BUENO",
+    ...extra,
+  });
+  const newTool = { code: "REN-001", categoryId: randomUUID(), brand: "Bosch" };
+
+  it("acepta una herramienta nueva o una existente, pero no ambas ni ninguna", () => {
+    expect(rentalCreateSchema.safeParse(rental({ tool: newTool })).success).toBe(true);
+    expect(rentalCreateSchema.safeParse(rental({ toolId: randomUUID() })).success).toBe(true);
+    expect(rentalCreateSchema.safeParse(rental({})).success).toBe(false);
+    expect(rentalCreateSchema.safeParse(rental({ tool: newTool, toolId: randomUUID() })).success).toBe(false);
+  });
+
+  it("la devolución prevista puede ser futura, pero no anterior a la recepción", () => {
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const past = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    expect(rentalCreateSchema.safeParse(rental({ tool: newTool, expectedReturnAt: future })).success).toBe(true);
+    expect(rentalCreateSchema.safeParse(rental({ tool: newTool, expectedReturnAt: past })).success).toBe(false);
+  });
+
+  it("limita las fotos de recepción", () => {
+    const ids = Array.from({ length: 11 }, () => randomUUID());
+    expect(rentalCreateSchema.safeParse(rental({ tool: newTool, photoIds: ids })).success).toBe(false);
+  });
+});
+
+describe("rentalReturnSchema", () => {
+  it("no admite fecha futura", () => {
+    const r = rentalReturnSchema.safeParse({
+      returnedAt: new Date(Date.now() + 3_600_000).toISOString(),
+      returnCondition: "BUENO",
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("transferPhotosSchema", () => {
+  it("no acepta la etapa de devolución de alquileres", () => {
+    expect(transferPhotosSchema.safeParse({ photoIds: [randomUUID()], stage: "DEVOLUCION" }).success).toBe(false);
   });
 });

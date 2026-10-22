@@ -55,6 +55,13 @@ export default function NewToolScreen() {
       }
     >
       <ErrorBanner error={create.error} />
+      <Button
+        title="¿Es rentada? Registrar su recepción"
+        icon="file-tray-full-outline"
+        variant="ghost"
+        compact
+        onPress={() => router.replace("/rental/new")}
+      />
       <PhotoPicker label="Foto de la herramienta (opcional)" max={1} onChange={onPhoto} />
       {/* Mismos campos que al editar; el formulario de alta además lleva foto y bodega. */}
       <ToolFields control={control as unknown as Control<ToolFieldValues>} />

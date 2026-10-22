@@ -8,6 +8,7 @@ export const TOOL_STATUS = [
   "DANADA",
   "EXTRAVIADA",
   "DADA_DE_BAJA",
+  "DEVUELTA", // herramienta rentada que ya se devolvió al arrendador
 ] as const;
 export type ToolStatus = (typeof TOOL_STATUS)[number];
 
@@ -19,6 +20,7 @@ export const TOOL_STATUS_LABEL: Record<ToolStatus, string> = {
   DANADA: "Dañada",
   EXTRAVIADA: "Extraviada",
   DADA_DE_BAJA: "Dada de baja",
+  DEVUELTA: "Devuelta al arrendador",
 };
 
 /** Estados que cuentan como pérdida en el módulo financiero. */
@@ -27,7 +29,8 @@ export const LOSS_STATUSES: readonly ToolStatus[] = ["DANADA", "EXTRAVIADA", "DA
 export const LOCATION_TYPE = ["BODEGA", "PROYECTO"] as const;
 export type LocationType = (typeof LOCATION_TYPE)[number];
 
-export const PHOTO_STAGE = ["ENTREGA", "RECEPCION"] as const;
+/** ENTREGA/RECEPCION: traslados. RECEPCION/DEVOLUCION: alquileres (cómo llegó y cómo se devolvió). */
+export const PHOTO_STAGE = ["ENTREGA", "RECEPCION", "DEVOLUCION"] as const;
 export type PhotoStage = (typeof PHOTO_STAGE)[number];
 
 export const ROLE = ["ADMIN", "BODEGUERO", "SUPERVISOR", "CHOFER", "LECTOR"] as const;
@@ -43,6 +46,8 @@ export const EVENT_TYPE = [
   "LOSS",
   "RECOVERY",
   "DECOMMISSION",
+  "RENTAL_RECEIVE", // llega una herramienta rentada (inicio de un período de alquiler)
+  "RENTAL_RETURN", // se devuelve al arrendador (fin del período)
 ] as const;
 export type EventType = (typeof EVENT_TYPE)[number];
 
@@ -74,3 +79,47 @@ export const MANUAL_EVENT_TYPE = [
   "DECOMMISSION",
 ] as const satisfies readonly EventType[];
 export type ManualEventType = (typeof MANUAL_EVENT_TYPE)[number];
+
+/** Herramienta de la empresa o rentada a un tercero. */
+export const TOOL_OWNERSHIP = ["PROPIA", "RENTADA"] as const;
+export type ToolOwnership = (typeof TOOL_OWNERSHIP)[number];
+
+export const TOOL_OWNERSHIP_LABEL: Record<ToolOwnership, string> = {
+  PROPIA: "Propia",
+  RENTADA: "Rentada",
+};
+
+/** Qué le pasó a la herramienta (reportes de daño e incidencias de alquiler). */
+export const DAMAGE_KIND = ["GOLPE", "FALLA", "PIEZA_FALTANTE", "ROTURA", "DESGASTE", "OTRO"] as const;
+export type DamageKind = (typeof DAMAGE_KIND)[number];
+
+export const DAMAGE_KIND_LABEL: Record<DamageKind, string> = {
+  GOLPE: "Golpe",
+  FALLA: "Falla",
+  PIEZA_FALTANTE: "Pieza faltante",
+  ROTURA: "Rotura",
+  DESGASTE: "Desgaste",
+  OTRO: "Otro / observación",
+};
+
+/** Estado físico observado (al reportar un daño, al recibir o al devolver una herramienta rentada). */
+export const TOOL_CONDITION = ["BUENO", "CON_DETALLES", "NO_OPERATIVA"] as const;
+export type ToolCondition = (typeof TOOL_CONDITION)[number];
+
+export const TOOL_CONDITION_LABEL: Record<ToolCondition, string> = {
+  BUENO: "Buen estado",
+  CON_DETALLES: "Funciona, con detalles",
+  NO_OPERATIVA: "No funciona",
+};
+
+export const RENTAL_STATUS = ["ACTIVO", "DEVUELTO"] as const;
+export type RentalStatus = (typeof RENTAL_STATUS)[number];
+
+export const RENTAL_STATUS_LABEL: Record<RentalStatus, string> = {
+  ACTIVO: "En alquiler",
+  DEVUELTO: "Devuelto",
+};
+
+/** Límites de fotos (la API y la app usan los mismos). */
+export const DAMAGE_MAX_PHOTOS = 3;
+export const RENTAL_MAX_PHOTOS = 10;

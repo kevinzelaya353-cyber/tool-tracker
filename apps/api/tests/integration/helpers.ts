@@ -61,7 +61,7 @@ export const PASSWORD = "Prueba-12345";
 /** Vacía todas las tablas. TRUNCATE no dispara el trigger de inmutabilidad (es por fila). */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE audit_log, refresh_tokens, photos, lifecycle_events, transfer_items, transfers,
+    TRUNCATE audit_log, refresh_tokens, photos, damage_reports, rentals, lifecycle_events, transfer_items, transfers,
              tools, tool_categories, vehicles, locations, users
     RESTART IDENTITY CASCADE`);
   storage.objects.clear();
