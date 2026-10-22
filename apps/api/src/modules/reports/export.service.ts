@@ -38,6 +38,7 @@ export const STATUS_TONE: Record<ToolStatus, Tone> = {
   DANADA: { strong: "FFE65100", font: "FFFFFFFF", tint: "FFFFF3E0" }, // naranja
   EXTRAVIADA: { strong: "FFC62828", font: "FFFFFFFF", tint: "FFFFEBEE" }, // rojo
   DADA_DE_BAJA: { strong: "FF616161", font: "FFFFFFFF", tint: "FFEEEEEE" }, // gris
+  DEVUELTA: { strong: "FF6A1B9A", font: "FFFFFFFF", tint: "FFF3E5F5" }, // morado: rentada, ya devuelta
 };
 
 /** Movimientos del historial coloreados según el estado al que llevan (los traslados no se colorean). */
@@ -50,6 +51,7 @@ const EVENT_TONE: Partial<Record<EventType, Tone>> = {
   LOSS: STATUS_TONE.EXTRAVIADA,
   RECOVERY: STATUS_TONE.BODEGA,
   DECOMMISSION: STATUS_TONE.DADA_DE_BAJA,
+  RENTAL_RETURN: STATUS_TONE.DEVUELTA,
 };
 
 const solid = (argb: string): ExcelJS.Fill => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
@@ -66,7 +68,11 @@ const EVENT_LABEL: Record<EventType, string> = {
   LOSS: "Reporte de extravío",
   RECOVERY: "Recuperada",
   DECOMMISSION: "Dada de baja",
+  RENTAL_RECEIVE: "Recibida en alquiler",
+  RENTAL_RETURN: "Devuelta al arrendador",
 };
+
+const EVIDENCE_PHOTO = { storageKey: true, thumbKey: true, hiddenAt: true } as const;
 
 const COLUMNS: Partial<ExcelJS.Column>[] = [
   { header: "Código", key: "code", width: 14 },
@@ -406,8 +412,12 @@ export class ExportService {
             include: {
               location: { select: { name: true } },
               reportedBy: { select: { name: true } },
-              photos: { select: { storageKey: true, thumbKey: true, hiddenAt: true }, orderBy: { createdAt: "asc" } },
+              photos: { select: EVIDENCE_PHOTO, orderBy: { createdAt: "asc" } },
               transfer: { select: TRANSFER_SELECT },
+              // Evidencia guardada en el reporte de daño o en el alquiler que originó el evento.
+              damageReport: { select: { photos: { select: EVIDENCE_PHOTO, orderBy: { createdAt: "asc" } } } },
+              rentalReceive: { select: { photos: { where: { stage: "RECEPCION" }, select: EVIDENCE_PHOTO, orderBy: { createdAt: "asc" } } } },
+              rentalReturn: { select: { photos: { where: { stage: "DEVOLUCION" }, select: EVIDENCE_PHOTO, orderBy: { createdAt: "asc" } } } },
             },
           },
         },
@@ -639,7 +649,13 @@ export class ExportService {
         const tone = tr && e.type !== "DISPATCH" ? undefined : EVENT_TONE[e.type];
         if (tone) paintRow(row, lastCol, tone, 2);
         // Fotos sin etapa (traslados anteriores o eventos) se muestran como de entrega/evidencia.
-        const photos = tr ? tr.photos : e.photos.map((p) => ({ ...p, stage: null as PhotoStage | null }));
+        const evidence = [
+          ...e.photos,
+          ...(e.damageReport?.photos ?? []),
+          ...(e.rentalReceive?.photos ?? []),
+          ...(e.rentalReturn?.photos ?? []),
+        ];
+        const photos = tr ? tr.photos : evidence.map((p) => ({ ...p, stage: null as PhotoStage | null }));
         // Con chofer, la fila de salida lleva las fotos de entrega y la de llegada las de recepción.
         const delivery = tr?.driver && e.type === "TRANSFER" ? [] : photos.filter((p) => p.stage !== "RECEPCION");
         const reception = tr?.driver && e.type === "DISPATCH" ? [] : photos.filter((p) => p.stage === "RECEPCION");

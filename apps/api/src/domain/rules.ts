@@ -1,6 +1,8 @@
 import {
+  canReportDamage,
   resolveTransition,
   type LocationType,
+  type ToolCondition,
   type ManualEventType,
   type ToolStatus,
 } from "@tt/shared";
@@ -100,5 +102,38 @@ export function checkLifecycleEvent(
   const c = chronology(tool, req.occurredAt);
   if (c) return { ok: false, violation: c };
 
+  return { ok: true, to: t.to };
+}
+
+export type DamageCheck = { ok: true; marksDamaged: boolean } | { ok: false; violation: RuleViolation };
+
+/**
+ * Un reporte de daño siempre se registra como un registro nuevo, también si la herramienta ya está
+ * dañada. Solo si "no funciona" y su estado lo permite, además la pasa a DANADA (evento DAMAGE),
+ * y entonces debe respetar el orden cronológico del historial.
+ */
+export function checkDamageReport(tool: LockedTool, req: { occurredAt: Date; condition: ToolCondition }): DamageCheck {
+  if (!canReportDamage(tool.status)) {
+    return {
+      ok: false,
+      violation: { toolId: tool.id, code: "NOT_REPORTABLE", message: `${tool.code}: no se pueden reportar daños en estado ${tool.status}` },
+    };
+  }
+  const marksDamaged = req.condition === "NO_OPERATIVA" && resolveTransition(tool.status, "DAMAGE").ok;
+  // Sin cambio de estado no altera el orden del historial: basta con que sea posterior a la compra.
+  const c = marksDamaged ? chronology(tool, req.occurredAt) : chronology({ ...tool, lastEventAt: null }, req.occurredAt);
+  if (c) return { ok: false, violation: c };
+  return { ok: true, marksDamaged };
+}
+
+/** Recepción (nuevo período) o devolución de una herramienta rentada. */
+export function checkRentalEvent(
+  tool: LockedTool,
+  req: { type: "RENTAL_RECEIVE" | "RENTAL_RETURN"; occurredAt: Date; destinationType?: LocationType },
+): LifecycleCheck {
+  const t = resolveTransition(tool.status, req.type, req.destinationType);
+  if (!t.ok) return { ok: false, violation: { toolId: tool.id, code: t.code, message: `${tool.code}: ${t.message}` } };
+  const c = chronology(tool, req.occurredAt);
+  if (c) return { ok: false, violation: c };
   return { ok: true, to: t.to };
 }

@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { TOOL_STATUS, TOOL_STATUS_LABEL, type ToolStatus } from "@tt/shared";
+import { TOOL_STATUS, TOOL_STATUS_LABEL, type ToolOwnership, type ToolStatus } from "@tt/shared";
 import { ToolCard } from "@/components/domain/ToolCard";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
@@ -26,13 +26,14 @@ export default function ToolsScreen() {
   const [status, setStatus] = useState<ToolStatus | undefined>(params.status);
   const [locationId, setLocationId] = useState<string | undefined>(params.locationId);
   const [categoryId, setCategoryId] = useState<string | undefined>();
+  const [ownership, setOwnership] = useState<ToolOwnership | undefined>();
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState("");
   const search = useDebounced(q.trim()) || undefined;
   // Sin búsqueda ni categoría elegida se muestran las categorías; al buscar se busca en todas.
   const grouped = !categoryId && !search && !showAll;
-  const query = useToolsInfinite({ status, locationId, categoryId, q: search }, !grouped);
-  const counts = useToolCategoryCounts({ status, locationId }, grouped);
+  const query = useToolsInfinite({ status, locationId, categoryId, ownership, q: search }, !grouped);
+  const counts = useToolCategoryCounts({ status, locationId, ownership }, grouped);
   const location = useLocations().data?.find((l) => l.id === locationId);
   const category = useCategories().data?.find((c) => c.id === categoryId);
   const tools = query.data?.pages.flatMap((p) => p.data) ?? [];
@@ -44,7 +45,7 @@ export default function ToolsScreen() {
   const printLabels = async () => {
     setPrinting(true);
     try {
-      const all = await fetchAllTools({ status, locationId, categoryId, q: search });
+      const all = await fetchAllTools({ status, locationId, categoryId, ownership, q: search });
       await printHtml(
         labelsHtml(all.map((t) => ({ code: t.code, title: `${t.category.name} ${t.brand}${t.model ? ` ${t.model}` : ""}` }))),
       );
@@ -103,6 +104,11 @@ export default function ToolsScreen() {
               }}
             />
           ) : null}
+          <Chip
+            label="Rentadas"
+            selected={ownership === "RENTADA"}
+            onPress={() => setOwnership(ownership === "RENTADA" ? undefined : "RENTADA")}
+          />
           <Chip label="Todas" selected={!status} onPress={() => setStatus(undefined)} />
           {TOOL_STATUS.map((s) => (
             <Chip
@@ -128,6 +134,10 @@ export default function ToolsScreen() {
             ListHeaderComponent={
               <>
                 <ErrorBanner error={counts.error} />
+                <Pressable onPress={() => router.push("/rentals")} style={styles.allLink} accessibilityRole="button">
+                  <Text style={styles.allText}>Herramientas rentadas y alquileres</Text>
+                  <Ionicons name="file-tray-full-outline" size={16} color={colors.primaryDark} />
+                </Pressable>
                 {total ? (
                   <Pressable onPress={() => setShowAll(true)} style={styles.allLink} accessibilityRole="button">
                     <Text style={styles.allText}>Ver todas ({total})</Text>

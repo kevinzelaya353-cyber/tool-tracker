@@ -14,6 +14,8 @@ import { AuthService } from "./modules/auth/auth.service.js";
 import { prismaRefreshStore } from "./modules/auth/refresh-store.prisma.js";
 import { TokenService } from "./modules/auth/token.service.js";
 import { catalogRouter } from "./modules/catalog/catalog.routes.js";
+import { damageRouter } from "./modules/damage/damage.routes.js";
+import { DamageService } from "./modules/damage/damage.service.js";
 import { CatalogService } from "./modules/catalog/catalog.service.js";
 import { lifecycleRouter } from "./modules/lifecycle/lifecycle.routes.js";
 import { LifecycleService } from "./modules/lifecycle/lifecycle.service.js";
@@ -23,6 +25,8 @@ import type { ObjectStorage } from "./modules/media/storage.js";
 import { ExportService } from "./modules/reports/export.service.js";
 import { exportRouter, reportsRouter } from "./modules/reports/reports.routes.js";
 import { ReportsService } from "./modules/reports/reports.service.js";
+import { rentalsRouter } from "./modules/rentals/rentals.routes.js";
+import { RentalsService } from "./modules/rentals/rentals.service.js";
 import { toolsRouter } from "./modules/tools/tools.routes.js";
 import { ToolsService } from "./modules/tools/tools.service.js";
 import { transfersRouter } from "./modules/transfers/transfers.routes.js";
@@ -116,7 +120,10 @@ export function createApp(
     app.use("/api/auth", authRouter(new AuthService(prisma, tokens), requireAuth, { rateLimit: env.NODE_ENV !== "test" }));
     app.use("/api/users", requireAuth, usersRouter(new UsersService(prisma, tokens)));
     app.use("/api/audit", requireAuth, auditRouter(prisma));
-    app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma)));
+    const damage = new DamageService(prisma);
+    app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma), damage));
+    app.use("/api/damage-reports", requireAuth, damageRouter(damage));
+    app.use("/api/rentals", requireAuth, rentalsRouter(new RentalsService(prisma)));
     app.use("/api/transfers", requireAuth, transfersRouter(
         new TransfersService(prisma, {
           routing: deps.routing,

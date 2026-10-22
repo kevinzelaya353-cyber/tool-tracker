@@ -11,13 +11,16 @@ interface Props {
   onChange(date: Date): void;
   mode?: "date" | "datetime";
   error?: string;
+  /** Para fechas previstas (p. ej. devolución de un alquiler). Por defecto no se permiten futuras. */
+  allowFuture?: boolean;
 }
 
-/** No permite fechas futuras (la API también las rechaza). */
-export function DateTimeField({ label, value, onChange, mode = "datetime", error }: Props) {
+/** No permite fechas futuras salvo con `allowFuture` (la API también las rechaza). */
+export function DateTimeField({ label, value, onChange, mode = "datetime", error, allowFuture = false }: Props) {
   const styles = useStyles();
   const { colors, font, scheme } = useTheme();
   const [step, setStep] = useState<null | "date" | "time">(null);
+  const clamp = (d: Date) => (!allowFuture && d > new Date() ? new Date() : d);
 
   const handle = (e: DateTimePickerEvent, d?: Date) => {
     if (e.type === "dismissed" || !d) return setStep(null);
@@ -26,7 +29,7 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
       onChange(d);
       return setStep("time");
     }
-    onChange(d > new Date() ? new Date() : d);
+    onChange(clamp(d));
     if (Platform.OS === "android") setStep(null);
   };
 
@@ -35,7 +38,7 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
     const type = mode === "date" ? "date" : "datetime-local";
     const onInput = (e: { target: { value: string } }) => {
       const d = fromInputValue(e.target.value);
-      if (d) onChange(d > new Date() ? new Date() : d);
+      if (d) onChange(clamp(d));
     };
     return (
       <View style={styles.wrap}>
@@ -46,7 +49,7 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
             <input
               type={type}
               value={toInputValue(value, mode)}
-              max={toInputValue(new Date(), mode)}
+              max={allowFuture ? undefined : toInputValue(new Date(), mode)}
               onChange={onInput}
               style={{
                 flex: 1,
@@ -88,7 +91,7 @@ export function DateTimeField({ label, value, onChange, mode = "datetime", error
           value={value}
           mode={Platform.OS === "ios" ? mode : step}
           display={Platform.OS === "ios" ? "inline" : "default"}
-          maximumDate={new Date()}
+          maximumDate={allowFuture ? undefined : new Date()}
           themeVariant={scheme}
           onChange={handle}
         />

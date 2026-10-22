@@ -1,5 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
+import { MANUAL_EVENT_TYPE, RENTAL_STATUS_LABEL, canReportDamage, type ManualEventType } from "@tt/shared";
+import { DamageHistory } from "@/components/domain/DamageHistory";
 import { StatusBadge } from "@/components/domain/StatusBadge";
 import { Timeline } from "@/components/domain/Timeline";
 import { ToolCoverPhoto } from "@/components/domain/ToolCoverPhoto";
@@ -8,9 +10,11 @@ import { Card } from "@/components/ui/Card";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { useDamageReports } from "@/features/damage/api";
+import { useToolRentals } from "@/features/rentals/api";
 import { useTool, useToolHistory } from "@/features/tools/api";
 import { ToolQrCard } from "@/features/tools/ToolQrCard";
-import { EVENT_ACTION, formatDateUTC, formatMoney } from "@/lib/format";
+import { EVENT_ACTION, formatDate, formatDateUTC, formatMoney } from "@/lib/format";
 import { space, makeStyles, useTheme } from "@/theme";
 
 export default function ToolDetailScreen() {
@@ -20,6 +24,9 @@ export default function ToolDetailScreen() {
   const { can } = useAuth();
   const tool = useTool(id);
   const history = useToolHistory(id);
+  const damages = useDamageReports(id);
+  const rented = tool.data?.ownership === "RENTADA";
+  const rentals = useToolRentals(id, rented);
 
   if (tool.isLoading) return <Loading />;
   if (!tool.data) return <Screen><ErrorBanner error={tool.error} /></Screen>;
@@ -29,9 +36,12 @@ export default function ToolDetailScreen() {
 
   // En tránsito no tiene ubicación: solo llega confirmando la recepción del traslado.
   const canTransfer = can("transfers:create") && t.availableEvents.includes("TRANSFER") && Boolean(t.currentLocation);
+  // Eventos manuales; el daño va por su propio formulario (con tipo, estado físico y hasta 3 fotos).
   const actions = t.availableEvents
-    .filter((e) => e !== "TRANSFER" && e !== "DISPATCH")
+    .filter((e): e is ManualEventType => (MANUAL_EVENT_TYPE as readonly string[]).includes(e) && e !== "DAMAGE")
     .filter((e) => (e === "DECOMMISSION" ? can("lifecycle:decommission") : can("lifecycle:create")));
+  const canDamage = can("lifecycle:create") && canReportDamage(t.status);
+  const activeRental = rentals.data?.find((r) => r.status === "ACTIVO");
 
   return (
     <Screen>
@@ -43,12 +53,17 @@ export default function ToolDetailScreen() {
           {t.model ? ` ${t.model}` : ""}
         </Text>
         <StatusBadge status={t.status} />
+        {rented ? <Text style={styles.rented}>Herramienta rentada</Text> : null}
         <View style={styles.facts}>
           <Fact label="Ubicación" value={trip ? `En camino a ${trip.toLocation.name}` : (t.currentLocation?.name ?? "—")} />
           <Fact label="A cargo de" value={t.currentCustodian?.name ?? "—"} />
           <Fact label="Serie" value={t.serial || "—"} />
-          <Fact label="Compra" value={`${formatDateUTC(t.purchaseDate)} · ${formatMoney(t.purchasePrice)}`} />
-          {t.supplier ? <Fact label="Proveedor" value={t.supplier} /> : null}
+          {rented ? (
+            activeRental ? <Fact label="Arrendador" value={activeRental.lessor} /> : null
+          ) : (
+            <Fact label="Compra" value={`${formatDateUTC(t.purchaseDate)} · ${formatMoney(t.purchasePrice)}`} />
+          )}
+          {t.supplier && !rented ? <Fact label="Proveedor" value={t.supplier} /> : null}
         </View>
         {can("tools:write") ? (
           <Button
@@ -65,7 +80,7 @@ export default function ToolDetailScreen() {
         <Button title="Ver traslado en camino" icon="car-outline" variant="secondary" onPress={() => router.push(`/transfer/${trip.id}`)} />
       ) : null}
 
-      {canTransfer || actions.length > 0 ? (
+      {canTransfer || actions.length > 0 || canDamage ? (
         <View style={styles.actions}>
           {canTransfer ? (
             <Button
@@ -74,6 +89,15 @@ export default function ToolDetailScreen() {
               onPress={() =>
                 router.push({ pathname: "/transfer/new", params: { toolId: t.id, fromLocationId: t.currentLocation?.id } })
               }
+            />
+          ) : null}
+          {canDamage ? (
+            <Button
+              title={activeRental ? "Reportar daño / incidencia" : "Reportar daño"}
+              icon="alert-circle-outline"
+              variant="danger"
+              compact
+              onPress={() => router.push({ pathname: "/damage/new", params: { toolId: t.id } })}
             />
           ) : null}
           {actions.map((e) => (
@@ -87,6 +111,42 @@ export default function ToolDetailScreen() {
           ))}
         </View>
       ) : null}
+
+      {rented ? (
+        <>
+          <Text style={font.h2}>Alquileres</Text>
+          <ErrorBanner error={rentals.error} />
+          {activeRental && can("tools:write") ? (
+            <Button
+              title="Registrar devolución"
+              icon="return-up-back-outline"
+              onPress={() => router.push({ pathname: "/rental/return", params: { id: activeRental.id } })}
+            />
+          ) : null}
+          {t.status === "DEVUELTA" && can("tools:write") ? (
+            <Button
+              title="Recibir de nuevo (nuevo alquiler)"
+              icon="download-outline"
+              onPress={() => router.push({ pathname: "/rental/new", params: { toolId: t.id } })}
+            />
+          ) : null}
+          {(rentals.data ?? []).map((r) => (
+            <Card key={r.id} onPress={() => router.push(`/rental/${r.id}`)}>
+              <Text style={[font.body, styles.factValue]}>{r.lessor}</Text>
+              <Text style={font.small}>
+                {formatDate(r.receivedAt)}
+                {r.returnedAt ? ` → ${formatDate(r.returnedAt)}` : r.expectedReturnAt ? ` → prevista ${formatDate(r.expectedReturnAt)}` : ""}
+                {" · "}
+                {RENTAL_STATUS_LABEL[r.status] ?? r.status}
+              </Text>
+            </Card>
+          ))}
+        </>
+      ) : null}
+
+      <Text style={font.h2}>Historial de daños</Text>
+      <ErrorBanner error={damages.error} />
+      {damages.isLoading ? <Loading /> : <DamageHistory reports={damages.data ?? []} />}
 
       <ToolQrCard label={{ code: t.code, title: `${t.category.name} ${t.brand}${t.model ? ` ${t.model}` : ""}` }} />
 
@@ -115,5 +175,6 @@ const useStyles = makeStyles(({ colors }) =>
     fact: { flexDirection: "row", justifyContent: "space-between", gap: space.md },
     factValue: { flexShrink: 1, textAlign: "right", fontWeight: "600" },
     actions: { gap: space.sm },
+    rented: { fontSize: 12, fontWeight: "700", color: colors.primaryDark },
   }),
 );

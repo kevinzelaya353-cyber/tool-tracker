@@ -17,6 +17,8 @@ const ICON: Record<EventType, ComponentProps<typeof Ionicons>["name"]> = {
   LOSS: "help-circle-outline",
   RECOVERY: "refresh-circle-outline",
   DECOMMISSION: "trash-outline",
+  RENTAL_RECEIVE: "download-outline",
+  RENTAL_RETURN: "return-up-back-outline",
 };
 
 /** Cadena de custodia + ciclo de vida, del evento más reciente al más antiguo. */
@@ -26,19 +28,19 @@ export function Timeline({ events }: { events: HistoryEvent[] }) {
   return (
     <View>
       {events.map((e, i) => {
-        const c = statusColors[e.toStatus];
+        const c = statusColors[e.toStatus] ?? statusColors.DADA_DE_BAJA; // estado desconocido: neutro
         // Con chofer, la salida muestra las fotos de entrega y la llegada las de recepción.
         const driver = e.transfer?.driver;
         const transferPhotos = (e.transfer?.photos ?? []).filter((p) =>
           !driver ? true : e.type === "DISPATCH" ? p.stage !== "RECEPCION" : p.stage === "RECEPCION",
         );
-        const photos = [...e.photos, ...transferPhotos].map((p) => p.id);
-        const title = driver && e.type === "TRANSFER" ? "Llegada (recepción)" : EVENT_LABEL[e.type];
+        const photos = [...e.photos, ...(e.damageReport?.photos ?? []), ...transferPhotos].map((p) => p.id);
+        const title = driver && e.type === "TRANSFER" ? "Llegada (recepción)" : (EVENT_LABEL[e.type] ?? e.type);
         return (
           <View key={e.id} style={styles.row}>
             <View style={styles.rail}>
               <View style={[styles.dot, { backgroundColor: c.bg, borderColor: c.fg }]}>
-                <Ionicons name={ICON[e.type]} size={14} color={c.fg} />
+                <Ionicons name={ICON[e.type] ?? "ellipse-outline"} size={14} color={c.fg} />
               </View>
               {i < events.length - 1 ? <View style={styles.line} /> : null}
             </View>

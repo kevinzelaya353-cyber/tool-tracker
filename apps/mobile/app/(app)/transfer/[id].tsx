@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { ITEM_OUTCOME_LABEL, type PhotoStage, type ReceptionMethod } from "@tt/shared";
+import { ITEM_OUTCOME_LABEL, type ReceptionMethod, type TransferPhotosInput } from "@tt/shared";
 import { PhotoStrip } from "@/components/domain/PhotoStrip";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -149,7 +149,7 @@ function AddPhotos({ transferId }: { transferId: string }) {
   const { font } = useTheme();
   const add = useAddTransferPhotos(transferId);
   const [open, setOpen] = useState(false);
-  const [stage, setStage] = useState<PhotoStage>("RECEPCION");
+  const [stage, setStage] = useState<TransferPhotosInput["stage"]>("RECEPCION");
   const [ids, setIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   // Al guardar se remonta el selector para empezar vacío.
