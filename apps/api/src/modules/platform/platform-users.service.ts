@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import argon2 from "argon2";
+import type { z } from "zod";
 import {
   platformSuperadminUpdateSchema,
   userUpdateSchema,
@@ -214,13 +215,13 @@ export class PlatformUsersService {
   }
 }
 
-function parse<T>(schema: { safeParse(v: unknown): { success: true; data: T } | { success: false; error: { issues: { path: (string | number)[]; message: string }[] } } }, body: unknown): T {
+function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const r = schema.safeParse(body);
   if (!r.success) {
     throw AppError.badRequest(
       "VALIDATION_ERROR",
       "Datos inválidos",
-      r.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      r.error.issues.map((i) => ({ path: i.path.map(String).join("."), message: i.message })),
     );
   }
   return r.data;

@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
-import { Controller, useForm, type Control } from "react-hook-form";
+import { Controller, useForm, type Control, type Resolver } from "react-hook-form";
 import { toolCreateSchema, type ToolCreateInput } from "@tt/shared";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/Feedback";
@@ -27,7 +27,8 @@ export default function NewToolScreen() {
       }
     : undefined;
   const { control, handleSubmit, formState } = useForm<ToolCreateInput>({
-    resolver: zodResolver(toolCreateSchema),
+    // zod 4 tipa la entrada de purchaseDate (z.coerce) como unknown; el selector siempre entrega un Date.
+    resolver: zodResolver(toolCreateSchema) as Resolver<ToolCreateInput>,
     defaultValues: { code: "", brand: "", purchasePrice: "", purchaseDate: new Date() },
   });
 

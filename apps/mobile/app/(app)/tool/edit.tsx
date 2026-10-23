@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { Text } from "react-native";
 import { toolCreateSchema, type ToolUpdateInput } from "@tt/shared";
 import { Button } from "@/components/ui/Button";
@@ -44,7 +44,8 @@ export default function EditToolScreen() {
   const tool = useTool(id);
   const update = useUpdateTool(id);
   const { control, handleSubmit, reset, formState } = useForm<ToolFieldValues>({
-    resolver: zodResolver(financial ? schema : (schemaWithoutPrice as unknown as typeof schema)),
+    // zod 4 tipa la entrada de purchaseDate (z.coerce) como unknown; el selector siempre entrega un Date.
+    resolver: zodResolver(financial ? schema : schemaWithoutPrice) as unknown as Resolver<ToolFieldValues>,
   });
   const leave = useConfirmDiscard(formState.isDirty);
 
