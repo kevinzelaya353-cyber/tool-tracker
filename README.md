@@ -1,6 +1,8 @@
 # Tool Tracker
 
-Sistema de gestión y trazabilidad de herramientas menores.
+Sistema de gestión y trazabilidad de herramientas menores, **multi-tenant**: varias empresas
+(organizaciones) usan la misma instalación con sus datos aislados. Arquitectura, roles, aislamiento,
+sesiones de soporte, auditoría y migración: [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md).
 
 | Paquete | Contenido |
 |---|---|
@@ -74,11 +76,20 @@ en orden de fecha y hora y agrupado por día. Las horas se muestran en la zona d
 
 ## API (todas bajo `/api`, con `Authorization: Bearer` salvo auth)
 
+Todas las rutas de una organización trabajan **solo** con la organización del usuario (sale del
+token). El SuperAdmin elige en cuál opera con la cabecera `X-Org-Id`; sin ella solo usa `/platform`.
+
 | Método y ruta | Permiso |
 |---|---|
 | `POST /auth/login` · `/auth/refresh` · `/auth/logout` · `GET /auth/me` | — |
-| `GET /users` · `POST /users` · `PATCH /users/:id` | users:read / users:manage |
-| `GET /audit` | audit:read |
+| `POST /auth/change-password` `{ currentPassword, newPassword }` | sesión propia |
+| `POST /auth/impersonation/end` | sesión de soporte |
+| `GET /users` · `POST /users` · `PATCH /users/:id` (incl. `lock`, `unlock`, `mustChangePassword`) | users:read / users:manage |
+| `GET /users/:id` (estado de la cuenta) · `POST /users/:id/reset-password` · `POST /users/:id/revoke-sessions` · `DELETE /users/:id` (solo sin historial) | users:manage |
+| `GET /audit?userId&action&module&result&from&to` | audit:read (su organización) |
+| `GET /platform/overview` · `GET\|POST /platform/organizations` · `GET\|PATCH /platform/organizations/:id` | SuperAdmin |
+| `GET\|POST /platform/users` · `GET\|PATCH\|DELETE /platform/users/:id` · `POST /platform/users/:id/reset-password` · `/revoke-sessions` | SuperAdmin |
+| `GET\|POST /platform/impersonations` · `POST /platform/impersonations/:id/revoke` · `GET /platform/audit` | SuperAdmin |
 | `GET\|POST /categories` · `GET\|POST /locations` · `GET\|POST /vehicles` (+ `PATCH /:id`) | tools:read / catalog:write |
 | `GET /tools` · `GET /tools/:id` · `GET /tools/by-code/:code` · `GET /tools/:id/history` | tools:read |
 | `POST /tools` · `PATCH /tools/:id` | tools:write |
@@ -87,12 +98,22 @@ en orden de fecha y hora y agrupado por día. Las horas se muestran en la zona d
 | `POST /media` (multipart, campo `photos`, máx. 5 × 15 MB) | transfers:create, lifecycle:create o tools:write |
 | `POST /media/urls` `{ ids, variant }` → URLs firmadas (10 min) · `DELETE /media/:id` (solo autor, sin asociar) | tools:read |
 
-| `GET /reports/summary` · `/reports/spend-by-category?from&to` · `/reports/spend-over-time?from&to&granularity=month\|year` · `/reports/losses?from&to` | reports:read |
+| `GET /reports/summary?from&to&categoryId&locationId` (montos en `null` sin finance:read) | reports:read |
+| `GET /reports/details?metric=tools\|inventory\|purchases\|maintenance\|losses&…` (detalle de una cifra) | reports:read (+ finance:read salvo `tools`) |
+| `GET /reports/spend-by-category` · `/reports/spend-over-time?granularity=month\|year` · `/reports/losses` (`from`, `to`, `categoryId`, `locationId`) | reports:read + finance:read |
+| `GET /reports/export/inventory.xlsx` (sin finance:read, sin montos) | reports:read |
 
 ### Reportes financieros
 
-- **Pérdida** = herramienta que hoy está dañada, extraviada o dada de baja, valorada a su precio
+- Los **montos** (precios, costos, totales) solo los ven el administrador de la organización y el
+  SuperAdmin (`finance:read`); la API no los envía al resto.
+- **Compras** = valor de adquisición de herramientas **propias** (las rentadas no son compras).
+- **Dañadas / extraviadas / de baja** = valor de adquisición de lo que hoy está en ese estado. Se
+  muestran por separado y **no se suman** con las compras: no es una pérdida calculada (el sistema
+  no registra valor actual, reposición ni depreciación).
+- **Pérdida en el tiempo** = herramienta que hoy está dañada, extraviada o dada de baja, valorada a su precio
   de compra y fechada en el evento que la sacó de un estado sano. Si se repara o recupera, sale del reporte.
+- Cada cifra del tablero abre su detalle (`/reports/details`), calculado con la misma consulta que el total.
 - **Mantenimiento** = `cost` de eventos de mantenimiento y de daño (reparaciones).
 - Los meses y años se agrupan en la zona horaria `REPORTS_TZ`. Los montos se calculan en
   PostgreSQL (NUMERIC) y viajan como texto.

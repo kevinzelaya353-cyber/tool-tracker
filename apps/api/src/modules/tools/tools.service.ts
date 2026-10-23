@@ -4,6 +4,7 @@ import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { pageArgs, toPage } from "../../lib/pagination.js";
 import { attachPhotos } from "../../lib/tx-helpers.js";
+import { requireOrgId } from "../../lib/context.js";
 
 type Ctx = { actorId: string; ip?: string };
 
@@ -65,8 +66,9 @@ export class ToolsService {
     return { ...tool, availableEvents: availableEvents(tool.status) };
   }
 
+  /** El código es único dentro de cada organización (el filtro por organización lo agrega el cliente). */
   async getByCode(code: string) {
-    const tool = await this.prisma.tool.findUnique({ where: { code: code.toUpperCase() }, select: { id: true } });
+    const tool = await this.prisma.tool.findFirst({ where: { code: code.toUpperCase() }, select: { id: true } });
     if (!tool) throw AppError.notFound("Herramienta");
     return this.get(tool.id);
   }
@@ -116,6 +118,7 @@ export class ToolsService {
       const { initialLocationId, photoId, ...data } = input;
       const tool = await tx.tool.create({
         data: {
+          organizationId: requireOrgId(),
           ...data,
           status: "BODEGA",
           currentLocationId: initialLocationId,
@@ -127,6 +130,7 @@ export class ToolsService {
       if (photoId) await attachPhotos(tx, [photoId], ctx.actorId, { toolId: tool.id });
       await tx.lifecycleEvent.create({
         data: {
+          organizationId: requireOrgId(),
           toolId: tool.id,
           type: "PURCHASE",
           fromStatus: null,

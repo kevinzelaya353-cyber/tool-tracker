@@ -1,8 +1,24 @@
 import type { EventType, Role } from "@tt/shared";
 
-// Lempiras por defecto; "es-HN" da el formato local: L 1,234.50.
-const currency = process.env.EXPO_PUBLIC_CURRENCY ?? "HNL";
-const moneyFmt = new Intl.NumberFormat("es-HN", { style: "currency", currency });
+// Lempiras por defecto; "es-HN" da el formato local: L 1,234.50. Al iniciar sesión se usa la
+// moneda configurada en la organización (setCurrency).
+const DEFAULT_CURRENCY = process.env.EXPO_PUBLIC_CURRENCY ?? "HNL";
+const moneyFmtFor = (currency: string) => {
+  try {
+    return new Intl.NumberFormat("es-HN", { style: "currency", currency });
+  } catch {
+    return new Intl.NumberFormat("es-HN", { style: "currency", currency: DEFAULT_CURRENCY });
+  }
+};
+let moneyFmt = moneyFmtFor(DEFAULT_CURRENCY);
+
+export function setCurrency(currency: string | null | undefined) {
+  moneyFmt = moneyFmtFor(currency || DEFAULT_CURRENCY);
+}
+
+/** Formatea con una moneda concreta (p. ej. una organización distinta en el tablero global). */
+export const formatMoneyIn = (v: string | number | null | undefined, currency: string) =>
+  v == null ? "—" : moneyFmtFor(currency).format(Number(v));
 const dateFmt = new Intl.DateTimeFormat("es", { day: "2-digit", month: "short", year: "numeric" });
 const dateTimeFmt = new Intl.DateTimeFormat("es", {
   day: "2-digit",
@@ -21,6 +37,7 @@ export const formatDateUTC = (iso: string) =>
 export const formatDateTime = (iso: string | Date) => dateTimeFmt.format(typeof iso === "string" ? new Date(iso) : iso);
 
 export const ROLE_LABEL: Record<Role, string> = {
+  SUPERADMIN: "SuperAdmin (plataforma)",
   ADMIN: "Administrador",
   BODEGUERO: "Bodeguero",
   SUPERVISOR: "Supervisor de proyecto",

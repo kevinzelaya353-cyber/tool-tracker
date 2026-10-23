@@ -117,6 +117,53 @@ ECDSA `SHA256:7DpABOk/BQ+VJ0RVcLBa2w9DQWCQ9qW79RJFrylvYX4` · RSA `SHA256:HVGnqb
 3. Verificar: `curl -fsS http://127.0.0.1:4031/ready` → `{"status":"ok","db":"ok"}`.
 4. Repetir con `main` → producción (`https://herramientas.plexbird.com/ready`).
 
+## Actualización a multi-tenant (migración `3_multi_tenant`)
+
+La migración asigna **todos** los datos existentes a la organización **"Ingenieria H"** y es atómica
+(si falla, no cambia nada y `current` sigue en la versión anterior). El despliegue ya hace el
+respaldo verificado antes de migrar. Pasos, primero en development y luego en producción:
+
+1. **Antes** (como `tooltracker`), guardar los conteos para comparar:
+
+   ```bash
+   cd /srv/tooltracker-dev/current/api && set -a && . ../../shared/.env && set +a
+   psql "${DATABASE_URL%%\?*}" -f prisma/ops/counts.sql > ~/conteos-antes.txt
+   ```
+
+2. Push a `develop` (o *Run workflow*): respaldo → `prisma migrate deploy` → arranque.
+3. **Después**: comparar y verificar el aislamiento (todas las filas de "problema" en 0):
+
+   ```bash
+   cd /srv/tooltracker-dev/current/api && set -a && . ../../shared/.env && set +a
+   psql "${DATABASE_URL%%\?*}" -f prisma/ops/counts.sql | diff ~/conteos-antes.txt - && echo "conteos idénticos"
+   psql "${DATABASE_URL%%\?*}" -f prisma/ops/verify-tenancy.sql
+   ```
+
+4. **Crear el SuperAdmin** (una vez por entorno). La contraseña se pasa solo en el entorno del
+   comando (no queda en `shared/.env` ni en el historial si se antepone un espacio):
+
+   ```bash
+   cd /srv/tooltracker-dev/current/api
+    SUPERADMIN_USERNAME=super.admin SUPERADMIN_PASSWORD='…' \
+     node --env-file=/srv/tooltracker-dev/shared/.env prisma/superadmin.ts create
+   ```
+
+   Recuperar el acceso si se pierde: lo mismo con `reset`.
+5. Probar: entrar como SuperAdmin (sin organización), abrir "Ingenieria H" desde el panel de la
+   plataforma; entrar como el admin de la empresa y comprobar que todo sigue igual.
+6. Repetir con `main` → producción.
+
+**Reversión:** con UNA sola organización, `psql … -1 -f prisma/ops/rollback-3_multi_tenant.sql` y
+desplegar la versión anterior. Con más de una, restaurar el respaldo de `shared/backups` tomado
+antes de migrar. Detalle en `docs/MULTI_TENANT.md`.
+
+**Publicar la app nueva junto con la API.** Con la app anterior, los usuarios de "Ingenieria H"
+siguen entrando y operando (sus tokens viejos se rechazan una vez y la app los renueva sola), pero
+los roles sin permiso de ver montos (Bodeguero, Supervisor, Lector) verán un error de permisos en
+los paneles de dinero del tablero y de Reportes (la API ahora responde 403 y lo audita como acceso
+denegado). Solo la app nueva tiene el panel de plataforma, las sesiones de soporte, los valores en
+el listado y el detalle de las gráficas.
+
 ## Acceso a development (no público)
 
 ```powershell

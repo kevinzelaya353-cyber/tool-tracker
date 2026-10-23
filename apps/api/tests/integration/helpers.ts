@@ -51,29 +51,51 @@ export const fakeRouting: RouteProvider = async (from, to) => ({
 });
 export const app = createApp(env, { prisma, storage: storage.storage, routing: fakeRouting });
 
-const tokens = new TokenService(
+export const tokens = new TokenService(
   { accessSecret: env.JWT_ACCESS_SECRET, refreshSecret: env.JWT_REFRESH_SECRET, accessTtlMin: 15, refreshTtlDays: 30 },
   prismaRefreshStore(prisma),
 );
 
 export const PASSWORD = "Prueba-12345";
 
-/** Vacía todas las tablas. TRUNCATE no dispara el trigger de inmutabilidad (es por fila). */
+/** Vacía todas las tablas. TRUNCATE no dispara los triggers de inmutabilidad (son por fila). */
 export async function resetDb() {
   await prisma.$executeRawUnsafe(`
-    TRUNCATE audit_log, refresh_tokens, photos, damage_reports, rentals, lifecycle_events, transfer_items, transfers,
-             tools, tool_categories, vehicles, locations, users
+    TRUNCATE audit_log, impersonation_sessions, refresh_tokens, photos, damage_reports, rentals, lifecycle_events,
+             transfer_items, transfers, tools, tool_categories, vehicles, locations, users, organizations
     RESTART IDENTITY CASCADE`);
   storage.objects.clear();
+  defaultOrgId = undefined;
+}
+
+/** Organización a la que van los usuarios creados sin indicar otra (la primera de seedBase). */
+let defaultOrgId: string | undefined;
+
+export async function createOrg(name: string, overrides: { active?: boolean; currency?: string } = {}) {
+  return prisma.organization.create({
+    data: {
+      name,
+      slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${randomUUID().slice(0, 6)}`,
+      active: overrides.active ?? true,
+      currency: overrides.currency ?? "HNL",
+    },
+  });
+}
+
+async function defaultOrg() {
+  defaultOrgId ??= (await createOrg("Organización de pruebas")).id;
+  return defaultOrgId;
 }
 
 let passwordHash: string | undefined;
 
 export async function createUser(
   role: Role,
-  overrides: { name?: string; email?: string; username?: string; active?: boolean } = {},
+  overrides: { name?: string; email?: string; username?: string; active?: boolean; organizationId?: string } = {},
 ) {
   passwordHash ??= await hashPassword(PASSWORD); // un solo hash por proceso: argon2 es lento a propósito
+  // El SuperAdmin no pertenece a ninguna organización; el resto, a la indicada o a la de pruebas.
+  const organizationId = role === "SUPERADMIN" ? null : (overrides.organizationId ?? (await defaultOrg()));
   const user = await prisma.user.create({
     data: {
       name: overrides.name ?? `${role} ${randomUUID().slice(0, 4)}`,
@@ -81,19 +103,27 @@ export async function createUser(
       username: overrides.username ?? `${role.toLowerCase()}-${randomUUID().slice(0, 8)}`,
       role,
       active: overrides.active ?? true,
+      organizationId,
       passwordHash,
     },
   });
-  const pair = await tokens.issue({ userId: user.id, role });
+  const pair = await tokens.issue({ userId: user.id, role, orgId: organizationId });
   // Los usuarios de prueba siempre tienen correo y usuario (las personas sin acceso no los tienen).
   return { ...user, email: user.email!, username: user.username!, token: pair.accessToken, refreshToken: pair.refreshToken };
 }
 
 export type TestUser = Awaited<ReturnType<typeof createUser>>;
 
-/** Cliente HTTP autenticado. */
-export function as(user: TestUser | null) {
-  const auth = (r: request.Test) => (user ? r.set("Authorization", `Bearer ${user.token}`) : r);
+/**
+ * Cliente HTTP autenticado. `orgId` envía X-Org-Id (la organización en la que opera un SuperAdmin;
+ * para el resto, un intento de cambiar de organización). Acepta un token suelto (sesiones de soporte).
+ */
+export function as(user: { token: string } | null, opts: { orgId?: string } = {}) {
+  const auth = (r: request.Test) => {
+    if (user) r.set("Authorization", `Bearer ${user.token}`);
+    if (opts.orgId) r.set("X-Org-Id", opts.orgId);
+    return r;
+  };
   return {
     get: (path: string) => auth(request(app).get(path)),
     post: (path: string, body?: object) => auth(request(app).post(path)).send(body ?? {}),
@@ -105,23 +135,29 @@ export function as(user: TestUser | null) {
   };
 }
 
-/** Escenario base: una bodega, dos obras, una categoría, un vehículo y un usuario por rol. */
-export async function seedBase() {
+/**
+ * Escenario base de una organización: una bodega, dos obras, una categoría, un vehículo y un
+ * usuario por rol. La primera organización sembrada pasa a ser la de pruebas por defecto.
+ */
+export async function seedBase(orgName = "Empresa A") {
+  const org = await createOrg(orgName);
+  defaultOrgId ??= org.id;
+  const organizationId = org.id;
   const [admin, bodeguero, supervisor, lector, receptor] = await Promise.all([
-    createUser("ADMIN", { name: "Admin" }),
-    createUser("BODEGUERO", { name: "Bodeguero" }),
-    createUser("SUPERVISOR", { name: "Supervisor" }),
-    createUser("LECTOR", { name: "Lector" }),
-    createUser("SUPERVISOR", { name: "Receptor" }),
+    createUser("ADMIN", { name: "Admin", organizationId }),
+    createUser("BODEGUERO", { name: "Bodeguero", organizationId }),
+    createUser("SUPERVISOR", { name: "Supervisor", organizationId }),
+    createUser("LECTOR", { name: "Lector", organizationId }),
+    createUser("SUPERVISOR", { name: "Receptor", organizationId }),
   ]);
   const [bodega, obraA, obraB, category, vehicle] = await Promise.all([
-    prisma.location.create({ data: { name: "Bodega principal", type: "BODEGA" } }),
-    prisma.location.create({ data: { name: "Obra A", type: "PROYECTO" } }),
-    prisma.location.create({ data: { name: "Obra B", type: "PROYECTO" } }),
-    prisma.toolCategory.create({ data: { name: "Taladro" } }),
-    prisma.vehicle.create({ data: { plate: "ABC-123" } }),
+    prisma.location.create({ data: { organizationId, name: "Bodega principal", type: "BODEGA" } }),
+    prisma.location.create({ data: { organizationId, name: "Obra A", type: "PROYECTO" } }),
+    prisma.location.create({ data: { organizationId, name: "Obra B", type: "PROYECTO" } }),
+    prisma.toolCategory.create({ data: { organizationId, name: "Taladro" } }),
+    prisma.vehicle.create({ data: { organizationId, plate: "ABC-123" } }),
   ]);
-  return { admin, bodeguero, supervisor, lector, receptor, bodega, obraA, obraB, category, vehicle };
+  return { org, admin, bodeguero, supervisor, lector, receptor, bodega, obraA, obraB, category, vehicle };
 }
 
 export type Base = Awaited<ReturnType<typeof seedBase>>;
@@ -163,7 +199,15 @@ export function transferBody(base: Base, toolIds: string[], overrides: Record<st
 export async function fakePhoto(uploader: TestUser) {
   const id = randomUUID();
   return prisma.photo.create({
-    data: { id, storageKey: `photos/test/${id}.jpg`, thumbKey: `photos/test/${id}_thumb.jpg`, mime: "image/jpeg", sizeBytes: 1000, uploadedById: uploader.id },
+    data: {
+      id,
+      organizationId: uploader.organizationId!,
+      storageKey: `photos/test/${id}.jpg`,
+      thumbKey: `photos/test/${id}_thumb.jpg`,
+      mime: "image/jpeg",
+      sizeBytes: 1000,
+      uploadedById: uploader.id,
+    },
   });
 }
 

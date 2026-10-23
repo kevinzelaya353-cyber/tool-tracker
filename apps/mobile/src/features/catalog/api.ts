@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CategoryCreateInput, LocationCreateInput, LocationType, LocationUpdateInput, VehicleCreateInput } from "@tt/shared";
+import { useHasOrg } from "@/features/auth/AuthProvider";
 import { api } from "@/lib/api";
 import type { Category, Location, UserLite, Vehicle } from "@/types/api";
 
@@ -16,15 +17,17 @@ export const catalogKeys = {
 export const useLocations = (type?: LocationType) =>
   useQuery({
     queryKey: catalogKeys.locations(type),
+    // Catálogos de una organización: el SuperAdmin sin organización elegida no los pide.
+    enabled: useHasOrg(),
     queryFn: () => api.get<Location[]>("/api/locations", { type }),
     staleTime: STALE,
   });
 
 export const useVehicles = () =>
-  useQuery({ queryKey: catalogKeys.vehicles, queryFn: () => api.get<Vehicle[]>("/api/vehicles"), staleTime: STALE });
+  useQuery({ queryKey: catalogKeys.vehicles, enabled: useHasOrg(), queryFn: () => api.get<Vehicle[]>("/api/vehicles"), staleTime: STALE });
 
 export const useCategories = () =>
-  useQuery({ queryKey: catalogKeys.categories, queryFn: () => api.get<Category[]>("/api/categories"), staleTime: STALE });
+  useQuery({ queryKey: catalogKeys.categories, enabled: useHasOrg(), queryFn: () => api.get<Category[]>("/api/categories"), staleTime: STALE });
 
 /** Crea un proyecto o bodega. Invalida todas las listas de ubicaciones (con y sin filtro de tipo). */
 export function useCreateLocation() {
@@ -72,4 +75,4 @@ export function useCreateCategory() {
 }
 
 export const useUsers = () =>
-  useQuery({ queryKey: catalogKeys.users, queryFn: () => api.get<UserLite[]>("/api/users"), staleTime: STALE });
+  useQuery({ queryKey: catalogKeys.users, enabled: useHasOrg(), queryFn: () => api.get<UserLite[]>("/api/users"), staleTime: STALE });

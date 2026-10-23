@@ -21,6 +21,14 @@ export interface Page<T> {
   pageSize: number;
 }
 
+export interface SessionOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  currency: string;
+  brandColor: string | null;
+}
+
 export interface SessionUser {
   id: string;
   name: string;
@@ -28,6 +36,11 @@ export interface SessionUser {
   email: string | null;
   role: Role;
   permissions: Permission[];
+  /** null solo para el SuperAdmin. */
+  organization: SessionOrganization | null;
+  mustChangePassword: boolean;
+  /** Solo en una sesión de soporte: quién está accediendo como este usuario. */
+  impersonation?: { id: string; actor: { id: string; name: string }; reason: string; expiresAt: string };
 }
 
 export interface Ref {
@@ -68,8 +81,56 @@ export interface ManagedUser extends UserLite {
   email: string | null;
   active: boolean;
   lockedAt: string | null;
+  failedLogins?: number;
+  mustChangePassword?: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+}
+
+/** Estado de una cuenta (nunca su credencial). */
+export interface AccountStatus extends ManagedUser {
+  activeSessions: number;
+  passwordChangedAt?: string | null;
+}
+
+/** Usuario en el listado global del SuperAdmin. */
+export interface PlatformUser extends ManagedUser {
+  organizationId: string | null;
+  organization: { id: string; name: string; active: boolean } | null;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  legalName: string | null;
+  taxId: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  address: string | null;
+  currency: string;
+  brandColor: string | null;
+  createdAt: string;
+  users: number;
+  tools: number;
+  admins?: { id: string; name: string; username: string | null; active: boolean; lockedAt: string | null; lastLoginAt: string | null }[];
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  result: "SUCCESS" | "FAILURE" | "DENIED";
+  diff: Record<string, unknown> | null;
+  ip: string | null;
+  userAgent: string | null;
+  impersonationId: string | null;
+  actor: { id: string; name: string; role: Role } | null;
+  effectiveUser: { id: string; name: string; role: Role } | null;
+  organization: { id: string; name: string } | null;
 }
 
 export interface Tool {
@@ -78,7 +139,8 @@ export interface Tool {
   brand: string;
   model?: string | null;
   serial?: string | null;
-  purchasePrice: string; // Decimal serializado
+  /** Decimal serializado. Ausente si quien consulta no tiene permiso de ver valores. */
+  purchasePrice?: string;
   purchaseDate: string;
   supplier?: string | null;
   status: ToolStatus;

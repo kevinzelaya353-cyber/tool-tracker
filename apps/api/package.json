@@ -13,6 +13,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx --env-file=.env prisma/seed.ts",
+    "superadmin": "tsx --env-file=.env prisma/superadmin.ts",
     "prisma:validate": "prisma validate"
   },
   "dependencies": {

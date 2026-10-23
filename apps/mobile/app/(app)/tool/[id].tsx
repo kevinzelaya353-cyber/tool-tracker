@@ -61,7 +61,14 @@ export default function ToolDetailScreen() {
           {rented ? (
             activeRental ? <Fact label="Arrendador" value={activeRental.lessor} /> : null
           ) : (
-            <Fact label="Compra" value={`${formatDateUTC(t.purchaseDate)} · ${formatMoney(t.purchasePrice)}`} />
+            <Fact
+              label="Compra"
+              value={
+                t.purchasePrice === undefined
+                  ? formatDateUTC(t.purchaseDate)
+                  : `${formatDateUTC(t.purchaseDate)} · ${Number(t.purchasePrice) > 0 ? formatMoney(t.purchasePrice) : "Valor no registrado"}`
+              }
+            />
           )}
           {t.supplier && !rented ? <Fact label="Proveedor" value={t.supplier} /> : null}
         </View>

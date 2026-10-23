@@ -33,8 +33,54 @@ export type LocationType = (typeof LOCATION_TYPE)[number];
 export const PHOTO_STAGE = ["ENTREGA", "RECEPCION", "DEVOLUCION"] as const;
 export type PhotoStage = (typeof PHOTO_STAGE)[number];
 
-export const ROLE = ["ADMIN", "BODEGUERO", "SUPERVISOR", "CHOFER", "LECTOR"] as const;
+/**
+ * SUPERADMIN: rol global de la plataforma, sin organización. El resto pertenece siempre a una
+ * organización; ADMIN es el administrador de su organización (UsuarioAdministrador).
+ */
+export const ROLE = ["SUPERADMIN", "ADMIN", "BODEGUERO", "SUPERVISOR", "CHOFER", "LECTOR"] as const;
 export type Role = (typeof ROLE)[number];
+
+/** Roles que se asignan dentro de una organización (un administrador nunca crea un SuperAdmin). */
+export const TENANT_ROLE = ["ADMIN", "BODEGUERO", "SUPERVISOR", "CHOFER", "LECTOR"] as const satisfies readonly Role[];
+export type TenantRole = (typeof TENANT_ROLE)[number];
+
+/** Roles que inician sesión con contraseña completa (el resto usa PIN de 4 dígitos). */
+export const PASSWORD_ROLES: readonly Role[] = ["SUPERADMIN", "ADMIN"];
+
+/** Categorías con las que nace cada organización (las más comunes en obra). */
+export const DEFAULT_CATEGORIES = [
+  "Taladro",
+  "Rotomartillo",
+  "Pulidora",
+  "Demoledor",
+  "Sierra circular",
+  "Extensión eléctrica",
+  "Nivel láser",
+  "Compresor",
+  "Soldadora",
+  "Atornillador",
+  "Llave de impacto",
+  "Sierra caladora",
+  "Sierra ingleteadora",
+  "Cortadora de concreto",
+  "Cortadora de cerámica",
+  "Lijadora",
+  "Pistola de calor",
+  "Mezcladora de concreto",
+  "Vibrador de concreto",
+  "Bailarina (apisonador)",
+  "Placa compactadora",
+  "Generador eléctrico",
+  "Bomba de agua",
+  "Hidrolavadora",
+  "Nivel óptico",
+  "Estación total",
+  "Andamio",
+  "Escalera",
+  "Carretilla",
+  "Herramienta manual",
+  "Otro",
+] as const;
 
 export const EVENT_TYPE = [
   "PURCHASE",

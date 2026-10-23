@@ -79,7 +79,7 @@ describe("auth (integración)", () => {
 
   it("dar acceso a una persona registrada sin cuenta exige usuario y PIN", async () => {
     const admin = await createUser("ADMIN");
-    const person = await prisma.user.create({ data: { name: "Juan", role: "LECTOR" } });
+    const person = await prisma.user.create({ data: { name: "Juan", role: "LECTOR", organizationId: admin.organizationId } });
     expect((await as(admin).patch(`/api/users/${person.id}`, { password: "4829" })).body.error.code).toBe("USERNAME_REQUIRED");
     expect((await as(admin).patch(`/api/users/${person.id}`, { username: "juan" })).body.error.code).toBe("CREDENTIAL_REQUIRED");
     expect((await as(admin).patch(`/api/users/${person.id}`, { username: "juan", password: "4829" })).status).toBe(200);

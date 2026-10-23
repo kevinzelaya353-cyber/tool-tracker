@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import type { PhotoStage, ToolStatus } from "@tt/shared";
 import type { LockedTool } from "../domain/rules.js";
+import { requireOrgId } from "./context.js";
 import { AppError } from "./errors.js";
 
 type Tx = Prisma.TransactionClient;
@@ -12,6 +13,8 @@ type Tx = Prisma.TransactionClient;
  */
 export async function lockTools(tx: Tx, ids: string[]): Promise<LockedTool[]> {
   if (ids.length === 0) return [];
+  // SQL a mano: no pasa por el filtro automático. Una herramienta de otra organización "no existe".
+  const orgId = requireOrgId();
   const rows = await tx.$queryRaw<
     { id: string; code: string; status: ToolStatus; currentLocationId: string | null; purchaseDate: Date; lastEventAt: Date | null }[]
   >`
@@ -22,7 +25,7 @@ export async function lockTools(tx: Tx, ids: string[]): Promise<LockedTool[]> {
            t.purchase_date           AS "purchaseDate",
            (SELECT max(e.occurred_at) FROM lifecycle_events e WHERE e.tool_id = t.id) AS "lastEventAt"
     FROM tools t
-    WHERE t.id = ANY(${ids}::uuid[])
+    WHERE t.id = ANY(${ids}::uuid[]) AND t.organization_id = ${orgId}::uuid
     ORDER BY t.id
     FOR UPDATE OF t
   `;

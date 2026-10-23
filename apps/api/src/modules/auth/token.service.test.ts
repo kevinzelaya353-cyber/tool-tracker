@@ -30,7 +30,8 @@ const cfg = {
   refreshTtlDays: 30,
 };
 
-const user = { id: randomUUID(), role: "BODEGUERO" as Role, active: true };
+const ORG = randomUUID();
+const user = { id: randomUUID(), role: "BODEGUERO" as Role, active: true, organizationId: ORG as string | null };
 const loadUser = async () => user;
 
 describe("TokenService", () => {
@@ -44,37 +45,37 @@ describe("TokenService", () => {
   });
 
   it("firma y verifica el access token", async () => {
-    const { accessToken } = await svc.issue({ userId: user.id, role: user.role });
-    await expect(svc.verifyAccess(accessToken)).resolves.toEqual({ userId: user.id, role: "BODEGUERO" });
+    const { accessToken } = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
+    await expect(svc.verifyAccess(accessToken)).resolves.toEqual({ userId: user.id, role: "BODEGUERO", orgId: ORG });
   });
 
   it("rechaza access token firmado con otra clave", async () => {
     const other = new TokenService({ ...cfg, accessSecret: "x".repeat(40) }, mem.store);
-    const token = await other.signAccess({ userId: user.id, role: "ADMIN" });
+    const token = await other.signAccess({ userId: user.id, role: "ADMIN", orgId: ORG });
     await expect(svc.verifyAccess(token)).rejects.toMatchObject({ status: 401 });
   });
 
   it("rechaza access token expirado", async () => {
-    const token = await svc.signAccess({ userId: user.id, role: user.role });
+    const token = await svc.signAccess({ userId: user.id, role: user.role, orgId: ORG });
     const later = new TokenService(cfg, mem.store, () => new Date(Date.now() + 16 * 60_000));
     await expect(later.verifyAccess(token)).rejects.toMatchObject({ status: 401 });
   });
 
   it("no guarda el refresh token en claro", async () => {
-    const { refreshToken } = await svc.issue({ userId: user.id, role: user.role });
+    const { refreshToken } = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
     const row = [...mem.rows.values()][0]!;
     expect(row.tokenHash).not.toContain(refreshToken);
   });
 
   it("rota: el token viejo queda revocado y el nuevo funciona", async () => {
-    const first = await svc.issue({ userId: user.id, role: user.role });
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
     const second = await svc.rotate(first.refreshToken, loadUser);
     expect(second.refreshToken).not.toBe(first.refreshToken);
     await expect(svc.rotate(second.refreshToken, loadUser)).resolves.toBeTruthy();
   });
 
   it("reutilizar un refresh token revoca toda la familia", async () => {
-    const first = await svc.issue({ userId: user.id, role: user.role });
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
     const second = await svc.rotate(first.refreshToken, loadUser);
 
     await expect(svc.rotate(first.refreshToken, loadUser)).rejects.toMatchObject({
@@ -86,20 +87,55 @@ describe("TokenService", () => {
   });
 
   it("rechaza refresh de un usuario desactivado", async () => {
-    const first = await svc.issue({ userId: user.id, role: user.role });
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
     user.active = false;
     await expect(svc.rotate(first.refreshToken, loadUser)).rejects.toMatchObject({ status: 401 });
   });
 
   it("rechaza refresh expirado", async () => {
-    const first = await svc.issue({ userId: user.id, role: user.role });
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
     const later = new TokenService(cfg, mem.store, () => new Date(Date.now() + 31 * 86_400_000));
     await expect(later.rotate(first.refreshToken, loadUser)).rejects.toMatchObject({ status: 401 });
   });
 
   it("toma el rol actual del usuario al rotar", async () => {
-    const first = await svc.issue({ userId: user.id, role: "BODEGUERO" });
+    const first = await svc.issue({ userId: user.id, role: "BODEGUERO", orgId: ORG });
     const rotated = await svc.rotate(first.refreshToken, async () => ({ ...user, role: "LECTOR" }));
     await expect(svc.verifyAccess(rotated.accessToken)).resolves.toMatchObject({ role: "LECTOR" });
+  });
+
+  it("rechaza tokens sin organización (emitidos antes del multi-tenant) o incoherentes", async () => {
+    const legacy = await svc.signAccess({ userId: user.id, role: "ADMIN", orgId: null });
+    await expect(svc.verifyAccess(legacy)).rejects.toMatchObject({ status: 401 });
+    const superadmin = await svc.signAccess({ userId: user.id, role: "SUPERADMIN", orgId: null });
+    await expect(svc.verifyAccess(superadmin)).resolves.toMatchObject({ role: "SUPERADMIN", orgId: null });
+    const superWithOrg = await svc.signAccess({ userId: user.id, role: "SUPERADMIN", orgId: ORG });
+    await expect(svc.verifyAccess(superWithOrg)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("una sesión de soporte lleva al usuario real y a la sesión", async () => {
+    const actor = randomUUID();
+    const imp = randomUUID();
+    const token = await svc.signAccess({ userId: user.id, role: "BODEGUERO", orgId: ORG, actorId: actor, impersonationId: imp }, 1800);
+    await expect(svc.verifyAccess(token)).resolves.toEqual({
+      userId: user.id,
+      role: "BODEGUERO",
+      orgId: ORG,
+      actorId: actor,
+      impersonationId: imp,
+    });
+  });
+
+  it("no renueva si la organización del usuario está desactivada", async () => {
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
+    await expect(svc.rotate(first.refreshToken, async () => ({ ...user, organizationActive: false }))).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+
+  it("el par renovado conserva la obligación de cambiar la credencial", async () => {
+    const first = await svc.issue({ userId: user.id, role: user.role, orgId: ORG });
+    const rotated = await svc.rotate(first.refreshToken, async () => ({ ...user, mustChangePassword: true }));
+    await expect(svc.verifyAccess(rotated.accessToken)).resolves.toMatchObject({ mustChangePassword: true });
   });
 });

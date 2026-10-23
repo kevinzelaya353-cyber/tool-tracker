@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
 import {
+  PERIOD_LABEL,
   PRESET_LABEL,
   presetRange,
   toLossColumns,
@@ -21,7 +22,9 @@ import {
   useSpendOverTime,
   type Preset,
 } from "@/features/reports/api";
+import { openReportDetail } from "@/features/reports/navigation";
 import { exportInventoryExcel } from "@/features/reports/export";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { notify } from "@/lib/dialogs";
 import { formatDate, formatMoney } from "@/lib/format";
 import { space, makeStyles, useTheme } from "@/theme";
@@ -29,6 +32,9 @@ import { space, makeStyles, useTheme } from "@/theme";
 export default function ReportsScreen() {
   const styles = useStyles();
   const { font, chart } = useTheme();
+  const { can } = useAuth();
+  // Los montos solo los ve quien tiene finance:read (el administrador); la API tampoco los envía al resto.
+  const values = can("finance:read");
   const [preset, setPreset] = useState<Preset>("12m");
   const [showTable, setShowTable] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -39,10 +45,10 @@ export default function ReportsScreen() {
     { name: "Mantenimiento", color: chart.series2 },
   ];
 
-  const summary = useReportSummary();
-  const overTime = useSpendOverTime(range, granularity);
-  const byCategory = useSpendByCategory(range);
-  const losses = useLosses(range);
+  const summary = useReportSummary({}, values);
+  const overTime = useSpendOverTime(range, granularity, values);
+  const byCategory = useSpendByCategory(range, values);
+  const losses = useLosses(range, values);
 
   const refreshing = summary.isRefetching || overTime.isRefetching || byCategory.isRefetching || losses.isRefetching;
   const refresh = () => {
@@ -76,15 +82,60 @@ export default function ReportsScreen() {
         loading={exporting}
         onPress={exportExcel}
       />
-      <Text style={font.small}>Una pestaña por proyecto y bodega, con la foto más reciente de cada herramienta.</Text>
+      <Text style={font.small}>
+        Una pestaña por proyecto y bodega, con la foto más reciente de cada herramienta.
+        {values ? "" : " Sin los montos: solo el administrador ve valores."}
+      </Text>
 
-      {/* Totales históricos (no dependen del periodo) */}
+      {!values ? (
+        <Card>
+          <Text style={font.h2}>Información financiera</Text>
+          <Text style={font.small}>
+            Los valores, compras, gastos y pérdidas solo los ve el administrador de la organización. Los conteos por estado están en
+            el Panel de control.
+          </Text>
+        </Card>
+      ) : (
+        <>
+      {/* Totales históricos (no dependen del periodo). Cada uno abre sus registros; ninguno se suma con otro. */}
       <ErrorBanner error={summary.error} />
       <View style={styles.tiles}>
-        <StatTile label="Inventario vigente" value={formatMoney(summary.data?.inventoryValue)} caption="Valor de compra en uso" />
-        <StatTile label="Pérdidas" value={formatMoney(summary.data?.lossValue)} caption="Dañadas, extraviadas y bajas" />
-        <StatTile label="Compras acumuladas" value={formatMoney(summary.data?.purchaseTotal)} />
-        <StatTile label="Mantenimiento" value={formatMoney(summary.data?.maintenanceTotal)} caption="Incluye reparaciones" />
+        <StatTile
+          label="Inventario vigente"
+          value={formatMoney(summary.data?.inventoryValue)}
+          caption="Valor de compra de lo que sigue en uso"
+          onPress={() => openReportDetail("Inventario en uso", { metric: "inventory" })}
+        />
+        <StatTile
+          label="Compras acumuladas"
+          value={formatMoney(summary.data?.purchases.value)}
+          caption={summary.data ? `${summary.data.purchases.count} herramientas propias` : undefined}
+          onPress={() => openReportDetail("Compras (histórico)", { metric: "purchases" })}
+        />
+        <StatTile
+          label="Dañadas hoy"
+          value={formatMoney(summary.data?.damaged.value)}
+          caption={summary.data ? `${summary.data.damaged.count} · valor de adquisición, no pérdida calculada` : undefined}
+          onPress={() => openReportDetail("Herramientas dañadas", { metric: "tools", status: "DANADA" })}
+        />
+        <StatTile
+          label="Extraviadas hoy"
+          value={formatMoney(summary.data?.byStatus.EXTRAVIADA.value)}
+          caption={summary.data ? `${summary.data.byStatus.EXTRAVIADA.count} · valor de adquisición` : undefined}
+          onPress={() => openReportDetail("Herramientas extraviadas", { metric: "tools", status: "EXTRAVIADA" })}
+        />
+        <StatTile
+          label="Dadas de baja"
+          value={formatMoney(summary.data?.byStatus.DADA_DE_BAJA.value)}
+          caption={summary.data ? `${summary.data.byStatus.DADA_DE_BAJA.count} · valor de adquisición` : undefined}
+          onPress={() => openReportDetail("Herramientas dadas de baja", { metric: "tools", status: "DADA_DE_BAJA" })}
+        />
+        <StatTile
+          label="Mantenimiento"
+          value={formatMoney(summary.data?.maintenanceTotal)}
+          caption="Costos registrados, incluye reparaciones"
+          onPress={() => openReportDetail("Mantenimiento y reparaciones (histórico)", { metric: "maintenance" })}
+        />
       </View>
 
       {/* Filtro de periodo: una sola fila sobre las gráficas */}
@@ -122,7 +173,20 @@ export default function ReportsScreen() {
             ))}
           </View>
         ) : (
-          <StackedBarChart series={spendSeries} columns={toSpendColumns(overTime.data ?? [], granularity)} />
+          <StackedBarChart
+            series={spendSeries}
+            columns={toSpendColumns(overTime.data ?? [], granularity)}
+            onOpen={(col, si) => {
+              const row = overTime.data?.[col];
+              if (!row) return;
+              const metric = si === 0 ? "purchases" : "maintenance";
+              openReportDetail(`${si === 0 ? "Compras" : "Mantenimiento"} · ${PERIOD_LABEL(row.period, granularity)}`, {
+                metric,
+                period: row.period,
+                granularity,
+              });
+            }}
+          />
         )}
       </Card>
 
@@ -131,7 +195,15 @@ export default function ReportsScreen() {
           <Text style={font.h2}>Pérdidas por periodo</Text>
           <Text style={font.small}>Valor de compra de lo dañado o extraviado, según la fecha del reporte</Text>
           {overTime.data ? (
-            <StackedBarChart series={[{ name: "Pérdidas", color: chart.series1 }]} columns={toLossColumns(overTime.data, granularity)} height={120} />
+            <StackedBarChart
+              series={[{ name: "Pérdidas", color: chart.series1 }]}
+              columns={toLossColumns(overTime.data, granularity)}
+              height={120}
+              onOpen={(col) => {
+                const row = overTime.data?.[col];
+                if (row) openReportDetail(`Pérdidas · ${PERIOD_LABEL(row.period, granularity)}`, { metric: "losses", period: row.period, granularity });
+              }}
+            />
           ) : null}
         </Card>
       ) : null}
@@ -155,6 +227,10 @@ export default function ReportsScreen() {
                 .filter(Boolean)
                 .join(" · "),
             }))}
+            onPress={(categoryId) => {
+              const c = byCategory.data?.find((x) => x.categoryId === categoryId);
+              openReportDetail(`Compras de ${c?.category ?? "la categoría"} · ${PRESET_LABEL[preset]}`, { metric: "purchases", categoryId, ...range });
+            }}
           />
         )}
       </Card>
@@ -166,11 +242,15 @@ export default function ReportsScreen() {
           <>
             <View style={styles.lossTotals}>
               {(["DANADA", "EXTRAVIADA", "DADA_DE_BAJA"] as const).map((s) => (
-                <View key={s} style={styles.lossTotal}>
+                <Pressable
+                  key={s}
+                  style={styles.lossTotal}
+                  onPress={() => openReportDetail(`${TOOL_STATUS_LABEL[s]} · ${PRESET_LABEL[preset]}`, { metric: "losses", status: s, ...range })}
+                >
                   <StatusBadge status={s} />
                   <Text style={styles.lossValue}>{formatMoney(losses.data.totals[s].value)}</Text>
                   <Text style={font.small}>{losses.data.totals[s].count} herramienta(s)</Text>
-                </View>
+                </Pressable>
               ))}
             </View>
             <Text style={[font.body, styles.bold]}>Total en el periodo: {formatMoney(losses.data.totalValue)}</Text>
@@ -188,11 +268,18 @@ export default function ReportsScreen() {
               </Pressable>
             ))}
             {losses.data.rows.length === 0 ? <Text style={font.small}>Sin pérdidas en el periodo.</Text> : null}
+            {losses.data.rows.length > 0 ? (
+              <Pressable onPress={() => openReportDetail(`Pérdidas · ${PRESET_LABEL[preset]}`, { metric: "losses", ...range })} hitSlop={8}>
+                <Text style={styles.link}>Ver todas ({Object.values(losses.data.totals).reduce((n, t) => n + t.count, 0)}) ›</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : losses.isLoading ? (
           <Loading />
         ) : null}
       </Card>
+        </>
+      )}
     </ScrollView>
   );
 }

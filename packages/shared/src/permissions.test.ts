@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { ROLE } from "./enums.js";
-import { PERMISSION, can } from "./permissions.js";
+import { ROLE, TENANT_ROLE } from "./enums.js";
+import { PERMISSION, PLATFORM_PERMISSION, TENANT_PERMISSION, can } from "./permissions.js";
 
 describe("permisos por rol", () => {
-  it("ADMIN tiene todos los permisos", () => {
-    for (const p of PERMISSION) expect(can("ADMIN", p)).toBe(true);
+  it("SUPERADMIN tiene todos los permisos, incluidos los de plataforma", () => {
+    for (const p of PERMISSION) expect(can("SUPERADMIN", p)).toBe(true);
   });
 
-  it("solo ADMIN gestiona usuarios, da de baja y lee auditoría", () => {
-    for (const role of ROLE.filter((r) => r !== "ADMIN")) {
+  it("ADMIN tiene todos los permisos de su organización y ninguno de plataforma", () => {
+    for (const p of TENANT_PERMISSION) expect(can("ADMIN", p)).toBe(true);
+    for (const p of PLATFORM_PERMISSION) expect(can("ADMIN", p)).toBe(false);
+  });
+
+  it("ningún rol de organización tiene permisos de plataforma", () => {
+    for (const role of TENANT_ROLE) for (const p of PLATFORM_PERMISSION) expect(can(role, p)).toBe(false);
+  });
+
+  it("solo ADMIN (y SUPERADMIN) gestiona usuarios, da de baja, lee auditoría y ve montos", () => {
+    for (const role of ROLE.filter((r) => r !== "ADMIN" && r !== "SUPERADMIN")) {
       expect(can(role, "users:manage")).toBe(false);
       expect(can(role, "lifecycle:decommission")).toBe(false);
       expect(can(role, "audit:read")).toBe(false);
       expect(can(role, "tools:financial")).toBe(false);
+      expect(can(role, "finance:read")).toBe(false);
     }
   });
 

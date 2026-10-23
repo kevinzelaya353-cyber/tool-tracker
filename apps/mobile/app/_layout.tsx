@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationThemeProvider, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -7,9 +7,9 @@ import { ErrorScreen } from "@/components/ui/ErrorScreen";
 import { Loading } from "@/components/ui/Feedback";
 import { AuthProvider, useAuth } from "@/features/auth/AuthProvider";
 import { ThemeProvider } from "@/features/theme/ThemeProvider";
-import { ApiError } from "@/lib/api";
 import { installCrashRecorder, takeLastCrash } from "@/lib/crashLog";
 import { notify } from "@/lib/dialogs";
+import { createQueryClient } from "@/lib/queryClient";
 import { useTheme } from "@/theme";
 
 installCrashRecorder();
@@ -78,19 +78,8 @@ ${crash.message}
     }
   }, []);
 
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            // No reintentar errores de negocio/permiso; sí fallos de red o del servidor.
-            retry: (count, err) => count < 2 && !(err instanceof ApiError && err.status >= 400 && err.status < 500),
-          },
-          mutations: { retry: false },
-        },
-      }),
-  );
+  // Caché de la sesión (inicio de sesión, /me). Los datos de cada organización usan la suya: (app)/_layout.
+  const [queryClient] = useState(createQueryClient);
 
   return (
     <SafeAreaProvider>

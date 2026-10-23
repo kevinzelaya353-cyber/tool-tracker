@@ -11,7 +11,11 @@ export type ToolFieldValues = Omit<ToolCreateInput, "id" | "initialLocationId" |
 
 type TextKey = "code" | "brand" | "model" | "serial" | "purchasePrice" | "supplier";
 
-export function ToolFields({ control }: { control: Control<ToolFieldValues> }) {
+/**
+ * `financial=false` oculta precio y fecha de compra (al editar sin permiso de corregirlos: la API
+ * tampoco los acepta ni envía el precio). Al dar de alta siempre se piden.
+ */
+export function ToolFields({ control, financial = true }: { control: Control<ToolFieldValues>; financial?: boolean }) {
   const categories = useCategories();
   const createCategory = useCreateCategory();
   const { can } = useAuth();
@@ -56,14 +60,16 @@ export function ToolFields({ control }: { control: Control<ToolFieldValues> }) {
       {text("brand", "Marca")}
       {text("model", "Modelo (opcional)")}
       {text("serial", "Número de serie (opcional)", { autoCapitalize: "characters" })}
-      {text("purchasePrice", "Precio de compra", { keyboardType: "decimal-pad", placeholder: "0.00" })}
-      <Controller
-        control={control}
-        name="purchaseDate"
-        render={({ field, fieldState }) => (
-          <DateTimeField label="Fecha de compra" mode="date" value={field.value} onChange={field.onChange} error={fieldState.error?.message} />
-        )}
-      />
+      {financial ? text("purchasePrice", "Precio de compra", { keyboardType: "decimal-pad", placeholder: "0.00" }) : null}
+      {financial ? (
+        <Controller
+          control={control}
+          name="purchaseDate"
+          render={({ field, fieldState }) => (
+            <DateTimeField label="Fecha de compra" mode="date" value={field.value} onChange={field.onChange} error={fieldState.error?.message} />
+          )}
+        />
+      ) : null}
       {text("supplier", "Proveedor (opcional)")}
     </>
   );

@@ -191,16 +191,22 @@ describe("herramientas rentadas (integración)", () => {
     expect(res.body).toMatchObject({ status: "ACTIVO", lessor: "Rentas del Norte", receptionCondition: "CON_DETALLES" });
     expect(res.body.photos.map((p: { stage: string }) => p.stage)).toEqual(["RECEPCION", "RECEPCION", "RECEPCION"]);
 
-    const tool = await as(base.lector).get(`/api/tools/${res.body.tool.id}`);
+    const tool = await as(base.admin).get(`/api/tools/${res.body.tool.id}`);
     expect(tool.body).toMatchObject({ ownership: "RENTADA", purchasePrice: "0", status: "BODEGA", supplier: "Rentas del Norte" });
+    // Quien no ve valores recibe la herramienta sin precio (la API no lo envía).
+    const asLector = await as(base.lector).get(`/api/tools/${res.body.tool.id}`);
+    expect(asLector.body).toMatchObject({ ownership: "RENTADA", status: "BODEGA" });
+    expect(asLector.body).not.toHaveProperty("purchasePrice");
     const events = await toolEvents(res.body.tool.id);
     expect(events.map((e) => e.type)).toEqual(["RENTAL_RECEIVE"]); // sin evento de compra
     // Filtro propia/rentada.
     const rented = await as(base.lector).get("/api/tools?ownership=RENTADA");
     expect(rented.body.total).toBe(1);
     // No suma al inventario.
-    const summary = await as(base.lector).get("/api/reports/summary");
+    const summary = await as(base.admin).get("/api/reports/summary");
     expect(summary.body.inventoryValue).toBe("0.00");
+    // Ni es una compra (no es un activo de la empresa).
+    expect(summary.body.purchases).toEqual({ count: 0, value: "0" });
   });
 
   it("incidencias: un daño durante el alquiler queda en ese alquiler, con sus fotos, sin tocar la recepción", async () => {

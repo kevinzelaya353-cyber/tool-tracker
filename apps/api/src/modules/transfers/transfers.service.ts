@@ -16,6 +16,7 @@ import { checkTransfer } from "../../domain/rules.js";
 import { checkCredential } from "../auth/auth.service.js";
 import { photoDistances } from "../../lib/geo.js";
 import { audit } from "../../lib/audit.js";
+import { requireOrgId } from "../../lib/context.js";
 import { AppError } from "../../lib/errors.js";
 import { pageArgs, toPage } from "../../lib/pagination.js";
 import type { LatLng, RouteProvider } from "../../lib/routing.js";
@@ -91,6 +92,7 @@ export class TransfersService {
       const locations = await tx.$queryRaw<{ id: string; type: LocationType; active: boolean }[]>`
         SELECT id, type::text AS "type", active FROM locations
         WHERE id IN (${input.fromLocationId}::uuid, ${input.toLocationId}::uuid)
+          AND organization_id = ${requireOrgId()}::uuid
         FOR SHARE
       `;
       const from = locations.find((l) => l.id === input.fromLocationId);
@@ -129,6 +131,7 @@ export class TransfersService {
       const newStatus: ToolStatus = inTransit ? "EN_TRANSITO" : arrived;
       const transfer = await tx.transfer.create({
         data: {
+          organizationId: requireOrgId(),
           id: input.id,
           fromLocationId: input.fromLocationId,
           toLocationId: input.toLocationId,
@@ -153,6 +156,7 @@ export class TransfersService {
       const statusById = new Map(tools.map((t) => [t.id, t.status]));
       await tx.lifecycleEvent.createMany({
         data: toolIds.map((toolId) => ({
+          organizationId: requireOrgId(),
           toolId,
           type: inTransit ? ("DISPATCH" as const) : ("TRANSFER" as const),
           fromStatus: statusById.get(toolId),
@@ -246,7 +250,8 @@ export class TransfersService {
 
     await this.prisma.$transaction(async (tx) => {
       // Bloquea el traslado: dos confirmaciones simultáneas no pueden aplicarse ambas.
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM transfers WHERE id = ${id}::uuid FOR UPDATE`;
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM transfers WHERE id = ${id}::uuid AND organization_id = ${requireOrgId()}::uuid FOR UPDATE`;
       if (locked.length === 0) throw AppError.notFound("Traslado");
       const t = await tx.transfer.findUniqueOrThrow({
         where: { id },
@@ -290,6 +295,7 @@ export class TransfersService {
           // No llegó: queda extraviada y a cargo de quien la llevaba (último responsable).
           await tx.lifecycleEvent.create({
             data: {
+              organizationId: requireOrgId(),
               toolId: item.toolId,
               type: "LOSS",
               fromStatus: "EN_TRANSITO",
@@ -307,6 +313,7 @@ export class TransfersService {
         }
         await tx.lifecycleEvent.create({
           data: {
+            organizationId: requireOrgId(),
             toolId: item.toolId,
             type: "TRANSFER",
             fromStatus: "EN_TRANSITO",
@@ -320,6 +327,7 @@ export class TransfersService {
         if (item.outcome === "DANADA") {
           await tx.lifecycleEvent.create({
             data: {
+              organizationId: requireOrgId(),
               toolId: item.toolId,
               type: "DAMAGE",
               fromStatus: arrived,
