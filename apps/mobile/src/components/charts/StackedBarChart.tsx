@@ -19,6 +19,8 @@ interface Props {
   series: Series[];
   columns: Column[];
   height?: number;
+  /** Abre el detalle de una serie en la barra elegida (aparece un enlace por serie en el recuadro). */
+  onOpen?: (columnIndex: number, seriesIndex: number) => void;
 }
 
 const GAP = 2; // separación de superficie entre segmentos apilados
@@ -28,7 +30,7 @@ const AXIS_W = 40;
  * Barras verticales apiladas (una serie = barras simples). Tocar una columna muestra
  * el detalle arriba del gráfico: es el equivalente táctil del hover.
  */
-export function StackedBarChart({ series, columns, height = 170 }: Props) {
+export function StackedBarChart({ series, columns, height = 170, onOpen }: Props) {
   const styles = useStyles();
   const { font } = useTheme();
   const [active, setActive] = useState<number | null>(null);
@@ -67,9 +69,26 @@ export function StackedBarChart({ series, columns, height = 170 }: Props) {
               ))}
               {series.length > 1 ? <Text style={styles.tooltipTotal}>Total {formatMoney(totals[active!] ?? 0)}</Text> : null}
             </View>
+            {onOpen ? (
+              <View style={styles.tooltipRow}>
+                {series.map((s, i) =>
+                  (sel.values[i] ?? 0) > 0 ? (
+                    <Pressable
+                      key={s.name}
+                      onPress={() => onOpen(active!, i)}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Ver ${s.name.toLowerCase()} de ${sel.fullLabel}`}
+                    >
+                      <Text style={styles.open}>Ver {s.name.toLowerCase()} ›</Text>
+                    </Pressable>
+                  ) : null,
+                )}
+              </View>
+            ) : null}
           </>
         ) : (
-          <Text style={font.small}>Toca una barra para ver el detalle</Text>
+          <Text style={font.small}>{onOpen ? "Toca una barra para ver sus cifras y abrir sus registros" : "Toca una barra para ver el detalle"}</Text>
         )}
       </View>
 
@@ -136,6 +155,7 @@ const useStyles = makeStyles(({ colors, chart }) =>
     tooltipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.md, marginTop: 2 },
     tooltipText: { fontSize: 13, color: colors.text },
     tooltipTotal: { fontSize: 13, color: colors.text, fontWeight: "700" },
+    open: { fontSize: 13, fontWeight: "800", color: colors.primaryDark },
     plot: { marginLeft: AXIS_W, position: "relative" },
     gridLine: {
       position: "absolute",

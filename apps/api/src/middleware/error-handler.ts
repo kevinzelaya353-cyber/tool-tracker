@@ -1,4 +1,7 @@
+import type { PrismaClient } from "@prisma/client";
 import type { ErrorRequestHandler, RequestHandler } from "express";
+import { audit } from "../lib/audit.js";
+import { currentContext } from "../lib/context.js";
 import { AppError } from "../lib/errors.js";
 
 const PRISMA_ERRORS: Record<string, { status: number; code: string; message: string }> = {
@@ -9,6 +12,36 @@ const PRISMA_ERRORS: Record<string, { status: number; code: string; message: str
 };
 
 export const notFound: RequestHandler = (_req, _res, next) => next(AppError.notFound("Recurso"));
+
+/** Respuestas que no son un intento de acceso indebido (no se auditan como DENIED). */
+const NOT_A_DENIAL = new Set(["PASSWORD_CHANGE_REQUIRED"]);
+
+/**
+ * Registra en la auditoría los accesos denegados (403) de usuarios autenticados: intentos de
+ * entrar a otra organización, a funciones de plataforma o sin permiso. No altera la respuesta.
+ */
+export function auditDenied(prisma: PrismaClient): ErrorRequestHandler {
+  return (err, req, res, next) => {
+    const auth = res.locals.auth;
+    if (err instanceof AppError && err.status === 403 && auth && !NOT_A_DENIAL.has(err.code)) {
+      audit(prisma, {
+        actorId: auth.userId,
+        action: "access.denied",
+        entity: "route",
+        entityId: null,
+        result: "DENIED",
+        // Sin contexto (rechazado al autenticar, p. ej. otra organización): la del propio usuario.
+        organizationId: currentContext()?.orgId ?? auth.orgId,
+        diff: { method: req.method, path: req.originalUrl.split("?")[0], code: err.code },
+        ip: req.ip,
+      })
+        .catch((e) => req.log?.error({ err: e }, "no se pudo auditar el acceso denegado"))
+        .finally(() => next(err));
+      return;
+    }
+    next(err);
+  };
+}
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof AppError) {
@@ -45,6 +78,13 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
       res.status(mapped.status).json({ error: { code: mapped.code, message: mapped.message } });
       return;
     }
+  }
+
+  // Trigger de aislamiento de la BD: una relación entre dos organizaciones (la API ya debía impedirla).
+  if (typeof err?.message === "string" && err.message.includes("TENANT_MISMATCH")) {
+    req.log?.warn({ err }, "relación entre organizaciones rechazada por la BD");
+    res.status(409).json({ error: { code: "TENANT_MISMATCH", message: "El registro no pertenece a esta organización" } });
+    return;
   }
 
   // Nunca exponer stack ni mensajes internos (p. ej. de Prisma) al cliente.

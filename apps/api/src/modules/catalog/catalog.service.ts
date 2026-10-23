@@ -8,6 +8,7 @@ import type {
   VehicleUpdateInput,
 } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
+import { requireOrgId } from "../../lib/context.js";
 import { AppError } from "../../lib/errors.js";
 
 type Ctx = { actorId: string; ip?: string };
@@ -25,7 +26,7 @@ export class CatalogService {
   }
 
   async createCategory(input: CategoryCreateInput, ctx: Ctx) {
-    const c = await this.prisma.toolCategory.create({ data: input });
+    const c = await this.prisma.toolCategory.create({ data: { ...input, organizationId: requireOrgId() } });
     await audit(this.prisma, { actorId: ctx.actorId, action: "category.create", entity: "category", entityId: c.id, diff: input, ip: ctx.ip });
     return c;
   }
@@ -47,7 +48,7 @@ export class CatalogService {
   }
 
   async createLocation(input: LocationCreateInput, ctx: Ctx) {
-    const l = await this.prisma.location.create({ data: input });
+    const l = await this.prisma.location.create({ data: { ...input, organizationId: requireOrgId() } });
     await audit(this.prisma, { actorId: ctx.actorId, action: "location.create", entity: "location", entityId: l.id, diff: input, ip: ctx.ip });
     return l;
   }
@@ -56,7 +57,7 @@ export class CatalogService {
     return this.prisma.$transaction(async (tx) => {
       // Bloqueo exclusivo: los traslados toman FOR SHARE sobre origen/destino,
       // así no puede entrar una herramienta mientras se cierra la ubicación.
-      await tx.$queryRaw`SELECT id FROM locations WHERE id = ${id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM locations WHERE id = ${id}::uuid AND organization_id = ${requireOrgId()}::uuid FOR UPDATE`;
       const before = await tx.location.findUnique({ where: { id } });
       if (!before) throw AppError.notFound("Ubicación");
 
@@ -115,7 +116,7 @@ export class CatalogService {
   }
 
   async createVehicle(input: VehicleCreateInput, ctx: Ctx) {
-    const v = await this.prisma.vehicle.create({ data: input });
+    const v = await this.prisma.vehicle.create({ data: { ...input, organizationId: requireOrgId() } });
     await audit(this.prisma, { actorId: ctx.actorId, action: "vehicle.create", entity: "vehicle", entityId: v.id, diff: input, ip: ctx.ip });
     return v;
   }

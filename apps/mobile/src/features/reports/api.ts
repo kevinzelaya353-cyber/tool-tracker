@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import type { CategorySpendRow, LossReport, ReportSummary, SpendPeriodRow } from "@tt/shared";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import type { CategorySpendRow, LossReport, ReportDetail, ReportMetric, ReportSummary, SpendPeriodRow, ToolStatus } from "@tt/shared";
 import { api } from "@/lib/api";
 import type { Column } from "@/components/charts/StackedBarChart";
 
@@ -10,33 +10,70 @@ export interface Range {
   to?: string;
 }
 
+/** Filtros del tablero: periodo, categoría y ubicación actual (los mismos para totales y detalle). */
+export interface ReportFilters extends Range {
+  categoryId?: string;
+  locationId?: string;
+}
+
 export const reportKeys = {
   all: ["reports"] as const,
-  summary: ["reports", "summary"] as const,
-  overTime: (r: Range, g: Granularity) => ["reports", "over-time", r, g] as const,
-  byCategory: (r: Range) => ["reports", "by-category", r] as const,
+  summary: (f: ReportFilters) => ["reports", "summary", f] as const,
+  overTime: (r: ReportFilters, g: Granularity) => ["reports", "over-time", r, g] as const,
+  byCategory: (r: ReportFilters) => ["reports", "by-category", r] as const,
   losses: (r: Range) => ["reports", "losses", r] as const,
+  details: (q: DetailParams) => ["reports", "details", q] as const,
 };
 
-export const useReportSummary = (enabled = true) =>
-  useQuery({ queryKey: reportKeys.summary, enabled, queryFn: () => api.get<ReportSummary>("/api/reports/summary") });
+export const useReportSummary = (filters: ReportFilters = {}, enabled = true) =>
+  useQuery({
+    queryKey: reportKeys.summary(filters),
+    enabled,
+    queryFn: () => api.get<ReportSummary>("/api/reports/summary", { ...filters }),
+  });
 
-export const useSpendOverTime = (range: Range, granularity: Granularity, enabled = true) =>
+export const useSpendOverTime = (range: ReportFilters, granularity: Granularity, enabled = true) =>
   useQuery({
     queryKey: reportKeys.overTime(range, granularity),
     enabled,
     queryFn: () => api.get<SpendPeriodRow[]>("/api/reports/spend-over-time", { ...range, granularity }),
   });
 
-export const useSpendByCategory = (range: Range, enabled = true) =>
+export const useSpendByCategory = (range: ReportFilters, enabled = true) =>
   useQuery({
     queryKey: reportKeys.byCategory(range),
     enabled,
     queryFn: () => api.get<CategorySpendRow[]>("/api/reports/spend-by-category", { ...range }),
   });
 
-export const useLosses = (range: Range) =>
-  useQuery({ queryKey: reportKeys.losses(range), queryFn: () => api.get<LossReport>("/api/reports/losses", { ...range }) });
+/** Lo que identifica una cifra del tablero (ver /api/reports/details). Todos los valores como texto: viajan en la URL. */
+export interface DetailParams extends ReportFilters {
+  metric: ReportMetric;
+  status?: ToolStatus;
+  /** Una barra de la serie: inicio del periodo y su granularidad. */
+  period?: string;
+  granularity?: Granularity;
+  q?: string;
+  /** SuperAdmin: organización del detalle (desde el tablero global). */
+  orgId?: string;
+}
+
+const DETAIL_PAGE = 50;
+
+/** Registros detrás de una cifra, paginados; `count` y `totalValue` son los de la cifra completa. */
+export const useReportDetails = (params: DetailParams) =>
+  useInfiniteQuery({
+    queryKey: reportKeys.details(params),
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) => {
+      const { orgId, ...query } = params;
+      return api.get<ReportDetail>("/api/reports/details", { ...query, page: pageParam, pageSize: DETAIL_PAGE }, { orgId });
+    },
+    getNextPageParam: (last) => (last.page * last.pageSize < last.count ? last.page + 1 : undefined),
+  });
+
+export const useLosses = (range: Range, enabled = true) =>
+  useQuery({ queryKey: reportKeys.losses(range), enabled, queryFn: () => api.get<LossReport>("/api/reports/losses", { ...range }) });
 
 // ---------- Presets de periodo ----------
 
@@ -61,6 +98,8 @@ export function presetRange(p: Preset, now = new Date()): { range: Range; granul
 
 const monthShort = new Intl.DateTimeFormat("es", { month: "short", timeZone: "UTC" });
 const monthLong = new Intl.DateTimeFormat("es", { month: "long", year: "numeric", timeZone: "UTC" });
+
+export const PERIOD_LABEL = (period: string, g: Granularity) => labels(period, g).fullLabel;
 
 function labels(period: string, g: Granularity) {
   const d = new Date(`${period}T00:00:00Z`);

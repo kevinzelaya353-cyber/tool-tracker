@@ -1,19 +1,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { Text } from "react-native";
 import { toolCreateSchema, type ToolUpdateInput } from "@tt/shared";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner, Loading } from "@/components/ui/Feedback";
 import { Screen } from "@/components/ui/Screen";
 import { useTool, useUpdateTool } from "@/features/tools/api";
+import { useAuth } from "@/features/auth/AuthProvider";
 import { ToolFields, type ToolFieldValues } from "@/features/tools/ToolFields";
 import type { ToolDetail } from "@/types/api";
 import { useConfirmDiscard } from "@/lib/useConfirmDiscard";
 import { useTheme } from "@/theme";
 
 const schema = toolCreateSchema.omit({ id: true, initialLocationId: true, photoId: true });
+// Sin permiso de corregir precio y fecha de compra, el formulario no los incluye (ni la API los envía).
+const schemaWithoutPrice = schema.omit({ purchasePrice: true, purchaseDate: true });
 
 /** La fecha de compra se guarda como día (UTC); en el selector se muestra ese mismo día en hora local. */
 const purchaseDay = (iso: string) => {
@@ -27,7 +30,7 @@ const toForm = (t: ToolDetail): ToolFieldValues => ({
   brand: t.brand,
   model: t.model ?? "",
   serial: t.serial ?? "",
-  purchasePrice: t.purchasePrice,
+  purchasePrice: t.purchasePrice ?? "",
   purchaseDate: purchaseDay(t.purchaseDate),
   supplier: t.supplier ?? "",
 });
@@ -36,9 +39,14 @@ const toForm = (t: ToolDetail): ToolFieldValues => ({
 export default function EditToolScreen() {
   const { font } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { can } = useAuth();
+  const financial = can("tools:financial");
   const tool = useTool(id);
   const update = useUpdateTool(id);
-  const { control, handleSubmit, reset, formState } = useForm<ToolFieldValues>({ resolver: zodResolver(schema) });
+  const { control, handleSubmit, reset, formState } = useForm<ToolFieldValues>({
+    // zod 4 tipa la entrada de purchaseDate (z.coerce) como unknown; el selector siempre entrega un Date.
+    resolver: zodResolver(financial ? schema : schemaWithoutPrice) as unknown as Resolver<ToolFieldValues>,
+  });
   const leave = useConfirmDiscard(formState.isDirty);
 
   // El formulario arranca con los datos guardados (una sola vez: no pisa lo que se va escribiendo).
@@ -62,7 +70,7 @@ export default function EditToolScreen() {
   return (
     <Screen footer={<Button title="Guardar cambios" icon="checkmark" onPress={onSubmit} loading={update.isPending} />}>
       <ErrorBanner error={update.error} />
-      <ToolFields control={control} />
+      <ToolFields control={control} financial={financial} />
       <Text style={font.small}>La foto se cambia desde la ficha de la herramienta.</Text>
     </Screen>
   );

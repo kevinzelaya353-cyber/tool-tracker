@@ -28,7 +28,8 @@
   },
   "pnpm": {
     "overrides": {
-      "deepmerge-ts": "^8.0.2"
+      "deepmerge-ts": "^8.0.2",
+      "@expo/cli>zod": "^4.6.6"
     },
     "auditConfig": {
       "ignoreCves": [

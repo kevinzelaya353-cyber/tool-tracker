@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ToolCreateInput, ToolOwnership, ToolStatus, ToolUpdateInput } from "@tt/shared";
+import { useHasOrg } from "@/features/auth/AuthProvider";
 import { api } from "@/lib/api";
 import type { HistoryEvent, Page, Tool, ToolDetail } from "@/types/api";
 
@@ -27,7 +28,7 @@ const PAGE_SIZE = 20;
 export const useToolsInfinite = (filters: ToolFilters, enabled = true) =>
   useInfiniteQuery({
     queryKey: toolKeys.list(filters),
-    enabled,
+    enabled: useHasOrg() && enabled,
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
       api.get<Page<Tool>>("/api/tools", { ...filters, page: pageParam, pageSize: PAGE_SIZE }),
@@ -44,7 +45,7 @@ export interface CategoryCount {
 export const useToolCategoryCounts = (filters: Omit<ToolFilters, "categoryId">, enabled = true) =>
   useQuery({
     queryKey: toolKeys.byCategory(filters),
-    enabled,
+    enabled: useHasOrg() && enabled,
     queryFn: () => api.get<CategoryCount[]>("/api/tools/categories", { ...filters }),
   });
 

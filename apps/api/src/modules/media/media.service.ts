@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { can, type Role } from "@tt/shared";
 import { audit } from "../../lib/audit.js";
+import { requireOrgId } from "../../lib/context.js";
 import { UNATTACHED_PHOTO } from "../../lib/tx-helpers.js";
 import { AppError } from "../../lib/errors.js";
 import { processImage, type ProcessedImage } from "./image.js";
@@ -64,6 +65,7 @@ export class MediaService {
       }
       await this.prisma.photo.createMany({
         data: rows.map((r) => ({
+          organizationId: requireOrgId(),
           id: r.id,
           storageKey: r.storageKey,
           thumbKey: r.thumbKey,

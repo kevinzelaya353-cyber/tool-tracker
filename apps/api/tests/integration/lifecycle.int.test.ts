@@ -84,8 +84,8 @@ describe("ciclo de vida (integración)", () => {
 
   it("las restricciones CHECK de la BD respaldan las reglas aunque se salte la API", async () => {
     await expect(
-      prisma.$executeRaw`INSERT INTO transfers (id, from_location_id, to_location_id, delivered_by, received_by, moved_at, created_by)
-        VALUES (gen_random_uuid(), ${base.bodega.id}::uuid, ${base.bodega.id}::uuid, ${base.admin.id}::uuid, ${base.lector.id}::uuid, now(), ${base.admin.id}::uuid)`,
+      prisma.$executeRaw`INSERT INTO transfers (id, organization_id, from_location_id, to_location_id, delivered_by, received_by, moved_at, created_by)
+        VALUES (gen_random_uuid(), ${base.org.id}::uuid, ${base.bodega.id}::uuid, ${base.bodega.id}::uuid, ${base.admin.id}::uuid, ${base.lector.id}::uuid, now(), ${base.admin.id}::uuid)`,
     ).rejects.toThrow(/transfers_distinct_locations/);
   });
 

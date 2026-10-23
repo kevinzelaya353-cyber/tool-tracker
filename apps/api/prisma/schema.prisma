@@ -10,6 +10,8 @@ datasource db {
 }
 
 enum Role {
+  /// Rol global de la plataforma: no pertenece a ninguna organización.
+  SUPERADMIN
   ADMIN
   BODEGUERO
   SUPERVISOR
@@ -89,94 +91,149 @@ enum EventType {
   RENTAL_RETURN
 }
 
+/// Una empresa que usa la plataforma. Sus datos están aislados del resto por `organization_id`.
+/// No se borra: se desactiva (sus usuarios dejan de poder entrar, la información se conserva).
+model Organization {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(120)
+  /// Identificador corto y estable (URL, soporte).
+  slug         String   @unique @db.VarChar(60)
+  active       Boolean  @default(true)
+  legalName    String?  @map("legal_name") @db.VarChar(160)
+  taxId        String?  @map("tax_id") @db.VarChar(40)
+  contactEmail String?  @map("contact_email") @db.VarChar(254)
+  contactPhone String?  @map("contact_phone") @db.VarChar(40)
+  address      String?  @db.VarChar(250)
+  /// ISO 4217: moneda en la que se muestran los montos de la organización.
+  currency     String   @default("HNL") @db.Char(3)
+  brandColor   String?  @map("brand_color") @db.VarChar(7)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  users          User[]
+  locations      Location[]
+  vehicles       Vehicle[]
+  categories     ToolCategory[]
+  tools          Tool[]
+  transfers      Transfer[]
+  events         LifecycleEvent[]
+  damageReports  DamageReport[]
+  rentals        Rental[]
+  photos         Photo[]
+  auditLogs      AuditLog[]
+  impersonations ImpersonationSession[]
+
+  @@map("organizations")
+}
+
 model User {
-  id               String    @id @default(uuid()) @db.Uuid
-  name             String    @db.VarChar(120)
+  id                 String    @id @default(uuid()) @db.Uuid
+  /// null solo para SUPERADMIN (CHECK en BD): el resto pertenece siempre a una organización.
+  organizationId     String?   @map("organization_id") @db.Uuid
+  name               String    @db.VarChar(120)
   /// null = persona sin acceso a la app (solo se registra como quien entrega o recibe).
-  email            String?   @unique @db.VarChar(254)
+  email              String?   @unique @db.VarChar(254)
   /// Usuario corto para iniciar sesión (minúsculas). null = sin acceso o cuenta antigua que entra con correo.
-  username         String?   @unique @db.VarChar(30)
-  /// Argon2 de la contraseña (ADMIN) o del PIN de 4 dígitos (resto de roles).
-  passwordHash     String?   @map("password_hash")
-  role             Role      @default(LECTOR)
-  active           Boolean   @default(true)
+  username           String?   @unique @db.VarChar(30)
+  /// Argon2 de la contraseña (SUPERADMIN/ADMIN) o del PIN de 4 dígitos (resto de roles).
+  passwordHash       String?   @map("password_hash")
+  /// Debe cambiar su PIN o contraseña al entrar (lo exige un administrador al restablecerla).
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  passwordChangedAt  DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  role               Role      @default(LECTOR)
+  active             Boolean   @default(true)
   /// Intentos fallidos seguidos; al llegar al límite se bloquea la cuenta (solo roles con PIN).
-  failedLogins     Int       @default(0) @map("failed_logins")
-  lockedAt         DateTime? @map("locked_at") @db.Timestamptz(3)
+  failedLogins       Int       @default(0) @map("failed_logins")
+  lockedAt           DateTime? @map("locked_at") @db.Timestamptz(3)
   /// Vehículo que se preselecciona cuando lleva un traslado (choferes).
-  defaultVehicleId String?   @map("default_vehicle_id") @db.Uuid
-  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz(3)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  defaultVehicleId   String?   @map("default_vehicle_id") @db.Uuid
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  custodyOf           Tool[]           @relation("ToolCustodian")
-  transfersDelivered  Transfer[]       @relation("TransferDeliveredBy")
-  transfersReceived   Transfer[]       @relation("TransferReceivedBy")
-  transfersCreated    Transfer[]       @relation("TransferCreatedBy")
-  transfersDriven     Transfer[]       @relation("TransferDriver")
-  receptionsConfirmed Transfer[]       @relation("TransferReceptionBy")
-  defaultVehicle      Vehicle?         @relation(fields: [defaultVehicleId], references: [id], onDelete: SetNull)
-  eventsReported      LifecycleEvent[]
-  damageReports       DamageReport[]
-  rentalsReceived     Rental[]         @relation("RentalReceivedBy")
-  rentalsReturned     Rental[]         @relation("RentalReturnedBy")
-  photosUploaded      Photo[]
-  refreshTokens       RefreshToken[]
-  auditLogs           AuditLog[]
+  organization           Organization?          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  custodyOf              Tool[]                 @relation("ToolCustodian")
+  transfersDelivered     Transfer[]             @relation("TransferDeliveredBy")
+  transfersReceived      Transfer[]             @relation("TransferReceivedBy")
+  transfersCreated       Transfer[]             @relation("TransferCreatedBy")
+  transfersDriven        Transfer[]             @relation("TransferDriver")
+  receptionsConfirmed    Transfer[]             @relation("TransferReceptionBy")
+  defaultVehicle         Vehicle?               @relation(fields: [defaultVehicleId], references: [id], onDelete: SetNull)
+  eventsReported         LifecycleEvent[]
+  damageReports          DamageReport[]
+  rentalsReceived        Rental[]               @relation("RentalReceivedBy")
+  rentalsReturned        Rental[]               @relation("RentalReturnedBy")
+  photosUploaded         Photo[]
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]             @relation("AuditActor")
+  auditLogsAsEffective   AuditLog[]             @relation("AuditEffectiveUser")
+  impersonationsStarted  ImpersonationSession[] @relation("ImpersonationActor")
+  impersonationsReceived ImpersonationSession[] @relation("ImpersonationTarget")
 
+  @@index([organizationId])
   @@map("users")
 }
 
 model Location {
-  id        String       @id @default(uuid()) @db.Uuid
-  name      String       @db.VarChar(120)
-  type      LocationType
-  address   String?      @db.VarChar(250)
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String       @db.VarChar(120)
+  type           LocationType
+  address        String?      @db.VarChar(250)
   // Punto en el mapa (WGS84); se usa para trazar la ruta de los traslados.
-  latitude  Float?
-  longitude Float?
-  active    Boolean      @default(true)
-  startedAt DateTime?    @map("started_at") @db.Date
-  closedAt  DateTime?    @map("closed_at") @db.Date
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  latitude       Float?
+  longitude      Float?
+  active         Boolean      @default(true)
+  startedAt      DateTime?    @map("started_at") @db.Date
+  closedAt       DateTime?    @map("closed_at") @db.Date
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   tools         Tool[]           @relation("ToolCurrentLocation")
   rentals       Rental[]
   transfersFrom Transfer[]       @relation("TransferFrom")
   transfersTo   Transfer[]       @relation("TransferTo")
   events        LifecycleEvent[]
 
-  @@unique([name, type])
+  @@unique([organizationId, name, type])
   @@map("locations")
 }
 
 model Vehicle {
-  id          String   @id @default(uuid()) @db.Uuid
-  plate       String   @unique @db.VarChar(15)
-  description String?  @db.VarChar(120)
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  plate          String   @db.VarChar(15)
+  description    String?  @db.VarChar(120)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  transfers  Transfer[]
-  defaultFor User[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  transfers    Transfer[]
+  defaultFor   User[]
 
+  @@unique([organizationId, plate])
   @@map("vehicles")
 }
 
 model ToolCategory {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique @db.VarChar(80)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String   @db.VarChar(80)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  tools Tool[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  tools        Tool[]
 
+  @@unique([organizationId, name])
   @@map("tool_categories")
 }
 
 model Tool {
   id                 String        @id @default(uuid()) @db.Uuid
-  code               String        @unique @db.VarChar(30) // se imprime como QR
+  /// Organización (tenant) dueña del registro. Nunca cambia después de crearse (trigger en BD).
+  organizationId     String        @map("organization_id") @db.Uuid
+  code               String        @db.VarChar(30) // se imprime como QR; único dentro de la organización
   categoryId         String        @map("category_id") @db.Uuid
   brand              String        @db.VarChar(60)
   model              String?       @db.VarChar(60)
@@ -197,6 +254,7 @@ model Tool {
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   category         ToolCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   currentLocation  Location?        @relation("ToolCurrentLocation", fields: [currentLocationId], references: [id], onDelete: Restrict)
   currentCustodian User?            @relation("ToolCustodian", fields: [currentCustodianId], references: [id], onDelete: SetNull)
@@ -207,6 +265,8 @@ model Tool {
   damageReports    DamageReport[]
   rentals          Rental[]
 
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
   @@index([status])
   @@index([categoryId])
   @@index([currentLocationId])
@@ -216,6 +276,7 @@ model Tool {
 
 model Transfer {
   id                  String           @id @default(uuid()) @db.Uuid
+  organizationId      String           @map("organization_id") @db.Uuid
   fromLocationId      String           @map("from_location_id") @db.Uuid
   toLocationId        String           @map("to_location_id") @db.Uuid
   deliveredById       String           @map("delivered_by") @db.Uuid
@@ -243,6 +304,7 @@ model Transfer {
   createdById         String           @map("created_by") @db.Uuid
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   fromLocation Location         @relation("TransferFrom", fields: [fromLocationId], references: [id], onDelete: Restrict)
   toLocation   Location         @relation("TransferTo", fields: [toLocationId], references: [id], onDelete: Restrict)
   deliveredBy  User             @relation("TransferDeliveredBy", fields: [deliveredById], references: [id], onDelete: Restrict)
@@ -255,6 +317,7 @@ model Transfer {
   photos       Photo[]
   events       LifecycleEvent[]
 
+  @@index([organizationId, movedAt])
   @@index([movedAt])
   @@index([status, driverId])
   @@index([status, receivedById])
@@ -281,21 +344,23 @@ model TransferItem {
 }
 
 model LifecycleEvent {
-  id           String      @id @default(uuid()) @db.Uuid
-  toolId       String      @map("tool_id") @db.Uuid
-  type         EventType
-  fromStatus   ToolStatus? @map("from_status") // null solo en PURCHASE y en la primera RENTAL_RECEIVE
-  toStatus     ToolStatus  @map("to_status")
-  occurredAt   DateTime    @map("occurred_at") @db.Timestamptz(3)
-  cost         Decimal?    @db.Decimal(12, 2)
-  description  String?     @db.VarChar(500)
-  locationId   String?     @map("location_id") @db.Uuid // ubicación resultante (si aplica)
-  transferId   String?     @map("transfer_id") @db.Uuid
-  reportedById String      @map("reported_by") @db.Uuid
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  toolId         String      @map("tool_id") @db.Uuid
+  type           EventType
+  fromStatus     ToolStatus? @map("from_status") // null solo en PURCHASE y en la primera RENTAL_RECEIVE
+  toStatus       ToolStatus  @map("to_status")
+  occurredAt     DateTime    @map("occurred_at") @db.Timestamptz(3)
+  cost           Decimal?    @db.Decimal(12, 2)
+  description    String?     @db.VarChar(500)
+  locationId     String?     @map("location_id") @db.Uuid // ubicación resultante (si aplica)
+  transferId     String?     @map("transfer_id") @db.Uuid
+  reportedById   String      @map("reported_by") @db.Uuid
   // clock_timestamp() (no now()): now() es el inicio de la transacción, y una transacción que
   // esperó el bloqueo de la herramienta quedaría ordenada antes que la que se confirmó primero.
-  createdAt    DateTime    @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  createdAt      DateTime    @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   tool          Tool          @relation(fields: [toolId], references: [id], onDelete: Restrict)
   location      Location?     @relation(fields: [locationId], references: [id], onDelete: Restrict)
   transfer      Transfer?     @relation(fields: [transferId], references: [id], onDelete: Restrict)
@@ -308,6 +373,7 @@ model LifecycleEvent {
 
   @@index([toolId, occurredAt])
   @@index([type, occurredAt])
+  @@index([organizationId, type, occurredAt])
   @@map("lifecycle_events")
 }
 
@@ -321,6 +387,7 @@ enum PhotoStage {
 model DamageReport {
   /// Lo genera la app: un reintento por corte de red devuelve el mismo reporte (no se duplica).
   id               String        @id @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
   toolId           String        @map("tool_id") @db.Uuid
   /// Incidencia de un período de alquiler (se asigna sola si la herramienta tiene uno activo).
   rentalId         String?       @map("rental_id") @db.Uuid
@@ -337,6 +404,7 @@ model DamageReport {
   lifecycleEventId String?       @unique @map("lifecycle_event_id") @db.Uuid
   createdAt        DateTime      @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   tool           Tool            @relation(fields: [toolId], references: [id], onDelete: Restrict)
   rental         Rental?         @relation(fields: [rentalId], references: [id], onDelete: Restrict)
   reportedBy     User            @relation(fields: [reportedById], references: [id], onDelete: Restrict)
@@ -345,6 +413,7 @@ model DamageReport {
 
   @@index([toolId, occurredAt])
   @@index([rentalId])
+  @@index([organizationId])
   @@map("damage_reports")
 }
 
@@ -352,6 +421,7 @@ model DamageReport {
 /// La recepción no se modifica nunca (trigger en BD); la devolución se registra una sola vez.
 model Rental {
   id                   String         @id @db.Uuid
+  organizationId       String         @map("organization_id") @db.Uuid
   toolId               String         @map("tool_id") @db.Uuid
   lessor               String         @db.VarChar(120)
   status               RentalStatus   @default(ACTIVO)
@@ -375,6 +445,7 @@ model Rental {
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   tool         Tool            @relation(fields: [toolId], references: [id], onDelete: Restrict)
   location     Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
   receivedBy   User            @relation("RentalReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
@@ -386,11 +457,13 @@ model Rental {
 
   @@index([toolId, receivedAt])
   @@index([status])
+  @@index([organizationId, status])
   @@map("rentals")
 }
 
 model Photo {
   id               String      @id @default(uuid()) @db.Uuid
+  organizationId   String      @map("organization_id") @db.Uuid
   storageKey       String      @unique @map("storage_key") @db.VarChar(300)
   thumbKey         String?     @map("thumb_key") @db.VarChar(300)
   mime             String      @db.VarChar(40)
@@ -413,6 +486,7 @@ model Photo {
   // Eliminada desde la app: deja de mostrarse, pero se conserva como evidencia para el Excel.
   hiddenAt         DateTime?   @map("hidden_at") @db.Timestamptz(3)
 
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   uploadedBy     User            @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
   tool           Tool?           @relation(fields: [toolId], references: [id], onDelete: SetNull)
   transfer       Transfer?       @relation(fields: [transferId], references: [id], onDelete: SetNull)
@@ -426,6 +500,7 @@ model Photo {
   @@index([damageReportId])
   @@index([rentalId])
   @@index([toolId])
+  @@index([organizationId])
   @@map("photos")
 }
 
@@ -446,18 +521,59 @@ model RefreshToken {
 }
 
 model AuditLog {
-  id       BigInt   @id @default(autoincrement())
-  actorId  String?  @map("actor_id") @db.Uuid
-  action   String   @db.VarChar(60)
-  entity   String   @db.VarChar(60)
-  entityId String?  @map("entity_id") @db.VarChar(64)
-  diff     Json?
-  ip       String?  @db.VarChar(45)
-  at       DateTime @default(now()) @db.Timestamptz(3)
+  id              BigInt   @id @default(autoincrement())
+  /// Usuario REAL que hizo la acción (en una sesión de soporte, el SuperAdmin).
+  actorId         String?  @map("actor_id") @db.Uuid
+  /// Usuario con cuyos permisos se hizo (distinto de actor_id solo durante una impersonación).
+  effectiveUserId String?  @map("effective_user_id") @db.Uuid
+  /// Organización en la que ocurrió (null: acción de plataforma o intento sin organización).
+  organizationId  String?  @map("organization_id") @db.Uuid
+  impersonationId String?  @map("impersonation_id") @db.Uuid
+  action          String   @db.VarChar(60)
+  entity          String   @db.VarChar(60)
+  entityId        String?  @map("entity_id") @db.VarChar(64)
+  /// SUCCESS, FAILURE (p. ej. contraseña incorrecta) o DENIED (sin permiso).
+  result          String   @default("SUCCESS") @db.VarChar(10)
+  diff            Json?
+  ip              String?  @db.VarChar(45)
+  userAgent       String?  @map("user_agent") @db.VarChar(200)
+  at              DateTime @default(now()) @db.Timestamptz(3)
 
-  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor         User?                 @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  effectiveUser User?                 @relation("AuditEffectiveUser", fields: [effectiveUserId], references: [id], onDelete: SetNull)
+  organization  Organization?         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  impersonation ImpersonationSession? @relation(fields: [impersonationId], references: [id], onDelete: Restrict)
 
   @@index([entity, entityId])
   @@index([at])
+  @@index([organizationId, at])
+  @@index([actorId, at])
+  @@index([impersonationId])
   @@map("audit_log")
+}
+
+/// Sesión de soporte: un SuperAdmin accede como otro usuario, con los permisos de ese usuario.
+/// Sin refresh token: caduca sola (expires_at) y se puede finalizar o revocar.
+model ImpersonationSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  actorId        String    @map("actor_id") @db.Uuid
+  targetUserId   String    @map("target_user_id") @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  reason         String    @db.VarChar(300)
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  endedAt        DateTime? @map("ended_at") @db.Timestamptz(3)
+  /// ENDED (la finalizó quien la abrió) o REVOKED (la cortó otro SuperAdmin).
+  endReason      String?   @map("end_reason") @db.VarChar(10)
+  endedById      String?   @map("ended_by") @db.Uuid
+  ip             String?   @db.VarChar(45)
+
+  actor        User         @relation("ImpersonationActor", fields: [actorId], references: [id], onDelete: Restrict)
+  target       User         @relation("ImpersonationTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  auditLogs    AuditLog[]
+
+  @@index([actorId, startedAt])
+  @@index([targetUserId])
+  @@map("impersonation_sessions")
 }

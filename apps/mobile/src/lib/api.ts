@@ -7,6 +7,14 @@ const REFRESH_KEY = "tt.refreshToken";
 let accessToken: string | null = null;
 let refreshing: Promise<boolean> | null = null;
 let onSessionExpired: (() => void) | null = null;
+/**
+ * Sesión de soporte (SuperAdmin accediendo como otro usuario): su token vive solo en memoria,
+ * no tiene refresh y, mientras dura, la sesión propia del SuperAdmin queda intacta debajo.
+ */
+let impersonationToken: string | null = null;
+let onImpersonationEnded: (() => void) | null = null;
+/** Organización en la que opera el SuperAdmin (cabecera X-Org-Id). La API la ignora para el resto. */
+let orgContext: string | null = null;
 
 export class ApiError extends Error {
   constructor(
@@ -39,11 +47,26 @@ export const session = {
   },
   async clear() {
     accessToken = null;
+    impersonationToken = null;
+    orgContext = null;
     await secureStorage.deleteItem(REFRESH_KEY);
   },
   getRefreshToken: () => secureStorage.getItem(REFRESH_KEY),
   onExpired(cb: () => void) {
     onSessionExpired = cb;
+  },
+  startImpersonation(token: string) {
+    impersonationToken = token;
+  },
+  endImpersonation() {
+    impersonationToken = null;
+  },
+  isImpersonating: () => impersonationToken !== null,
+  onImpersonationEnded(cb: () => void) {
+    onImpersonationEnded = cb;
+  },
+  setOrgContext(id: string | null) {
+    orgContext = id;
   },
 };
 
@@ -85,6 +108,8 @@ interface RequestOptions {
   auth?: boolean;
   /** Devuelve el cuerpo como bytes (descargas de archivos) en lugar de JSON. */
   binary?: boolean;
+  /** Organización para ESTA petición (SuperAdmin), en lugar de la del contexto. */
+  orgId?: string;
 }
 
 function withQuery(path: string, query?: Query) {
@@ -98,10 +123,14 @@ function withQuery(path: string, query?: Query) {
 
 export async function request<T>(path: string, opts: RequestOptions = {}, retry = true): Promise<T> {
   const auth = opts.auth !== false;
-  if (auth && !accessToken) await refresh();
+  const impersonating = impersonationToken !== null;
+  if (auth && !impersonating && !accessToken) await refresh();
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const token = impersonationToken ?? accessToken;
+  if (auth && token) headers.Authorization = `Bearer ${token}`;
+  const org = opts.orgId ?? orgContext;
+  if (auth && org && !impersonating) headers["X-Org-Id"] = org;
 
   let body: BodyInit | undefined;
   if (opts.form) {
@@ -118,7 +147,11 @@ export async function request<T>(path: string, opts: RequestOptions = {}, retry 
     throw new ApiError(0, "NETWORK", "Sin conexión con el servidor");
   }
 
-  if (res.status === 401 && auth && retry) {
+  if (res.status === 401 && auth && impersonating) {
+    // Venció o se revocó la sesión de soporte: se vuelve a la del SuperAdmin (nunca se renueva).
+    impersonationToken = null;
+    onImpersonationEnded?.();
+  } else if (res.status === 401 && auth && retry) {
     if (await refresh()) return request<T>(path, opts, false);
     onSessionExpired?.();
   }
@@ -138,7 +171,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}, retry 
 }
 
 export const api = {
-  get: <T>(path: string, query?: Query) => request<T>(path, { query }),
+  get: <T>(path: string, query?: Query, opts: Pick<RequestOptions, "orgId"> = {}) => request<T>(path, { query, ...opts }),
   post: <T>(path: string, body?: unknown, opts: Pick<RequestOptions, "auth"> = {}) =>
     request<T>(path, { method: "POST", body, ...opts }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body }),

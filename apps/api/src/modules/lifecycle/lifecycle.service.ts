@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { can, EVENT_REQUIRES_LOCATION, type LifecycleEventCreateInput, type LocationType } from "@tt/shared";
 import { checkLifecycleEvent } from "../../domain/rules.js";
 import { audit } from "../../lib/audit.js";
+import { requireOrgId } from "../../lib/context.js";
 import { AppError } from "../../lib/errors.js";
 import { attachPhotos, lockTools } from "../../lib/tx-helpers.js";
 import type { AccessClaims } from "../auth/token.service.js";
@@ -27,7 +28,8 @@ export class LifecycleService {
           throw AppError.badRequest("DESTINATION_REQUIRED", `${input.type} requiere indicar la bodega de destino`);
         }
         const [loc] = await tx.$queryRaw<{ type: LocationType; active: boolean }[]>`
-          SELECT type::text AS "type", active FROM locations WHERE id = ${input.locationId}::uuid FOR SHARE
+          SELECT type::text AS "type", active FROM locations
+          WHERE id = ${input.locationId}::uuid AND organization_id = ${requireOrgId()}::uuid FOR SHARE
         `;
         if (!loc || !loc.active) throw AppError.badRequest("INVALID_LOCATION", "Ubicación inexistente o cerrada");
         destinationType = loc.type;
@@ -45,6 +47,7 @@ export class LifecycleService {
 
       const event = await tx.lifecycleEvent.create({
         data: {
+          organizationId: requireOrgId(),
           toolId: tool.id,
           type: input.type,
           fromStatus: tool.status,

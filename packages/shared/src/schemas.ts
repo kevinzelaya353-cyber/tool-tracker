@@ -5,11 +5,13 @@ import {
   ITEM_OUTCOME,
   LOCATION_TYPE,
   MANUAL_EVENT_TYPE,
+  PASSWORD_ROLES,
   RENTAL_MAX_PHOTOS,
   RENTAL_STATUS,
   ROLE,
   TOOL_CONDITION,
   TOOL_OWNERSHIP,
+  TENANT_ROLE,
   TOOL_STATUS,
   TRANSFER_STATUS,
   type Role,
@@ -71,8 +73,8 @@ export const pinSchema = z
   .regex(/^\d{4}$/, "El PIN debe tener exactamente 4 dígitos")
   .refine((p) => !COMMON_PINS.has(p) && !isRunOrRepeat(p), "PIN demasiado fácil de adivinar, elige otro");
 
-/** Los administradores usan contraseña completa; el resto, PIN. */
-export const credentialSchemaFor = (role: Role) => (role === "ADMIN" ? passwordSchema : pinSchema);
+/** Los administradores (y el SuperAdmin) usan contraseña completa; el resto, PIN. */
+export const credentialSchemaFor = (role: Role) => (PASSWORD_ROLES.includes(role) ? passwordSchema : pinSchema);
 
 export const userCreateSchema = z
   .object({
@@ -80,7 +82,8 @@ export const userCreateSchema = z
     username: usernameSchema,
     email: z.string().trim().toLowerCase().email().max(254).optional(),
     password: z.string().max(128),
-    role: z.enum(ROLE),
+    /** Dentro de una organización nunca se crea un SuperAdmin. */
+    role: z.enum(TENANT_ROLE),
     /** Vehículo que se preselecciona cuando esta persona lleva un traslado (choferes). */
     defaultVehicleId: id.nullable().optional(),
   })
@@ -101,15 +104,32 @@ export const userUpdateSchema = z
   .object({
     name: shortText(120),
     username: usernameSchema,
-    role: z.enum(ROLE),
+    role: z.enum(TENANT_ROLE),
     active: z.boolean(),
     password: z.string().min(1).max(128),
     /** Quita el bloqueo por intentos fallidos sin cambiar el PIN. */
     unlock: z.literal(true),
+    /** Bloquea la cuenta (no puede iniciar sesión hasta que la desbloqueen). */
+    lock: z.literal(true),
+    /** Obliga a cambiar el PIN o la contraseña en el próximo inicio de sesión. */
+    mustChangePassword: z.boolean(),
     defaultVehicleId: id.nullable(),
   })
   .partial()
   .refine((u) => Object.keys(u).length > 0, "Nada que actualizar");
+
+/** Cambio de la propia credencial (obligatorio si un administrador lo exigió). */
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, "Escribe tu PIN o contraseña actual").max(128),
+  newPassword: z.string().min(1).max(128),
+});
+
+/** Restablecer la credencial de otro usuario. Nunca se consulta la anterior. */
+export const passwordResetSchema = z.object({
+  password: z.string().min(1).max(128),
+  /** Por defecto debe cambiarla al entrar: así quien la restableció no la conoce para siempre. */
+  mustChangePassword: z.boolean().default(true),
+});
 
 /** Persona sin acceso a la app: solo aparece como quien entrega o recibe herramientas. */
 export const personCreateSchema = z.object({
@@ -386,13 +406,165 @@ export const reportRangeQuerySchema = z
     path: ["from"],
   });
 
-/** Filtro opcional por periodo (sin fechas = histórico completo). */
+/**
+ * Filtro opcional por periodo (sin fechas = histórico completo), categoría y ubicación actual.
+ * Los mismos filtros se aplican a los totales y a su detalle, para que siempre coincidan.
+ */
 export const reportFilterQuerySchema = z
   .object({
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    categoryId: id.optional(),
+    locationId: id.optional(),
   })
   .refine((r) => !r.from || !r.to || r.from <= r.to, { message: "Rango inválido", path: ["to"] });
+
+/**
+ * Qué conjunto de registros forma una cifra del tablero:
+ * - tools: herramientas que cumplen los filtros (por estado, ubicación…), estado actual.
+ * - inventory: herramientas que siguen en uso o recuperables (no dañadas, extraviadas ni de baja).
+ * - purchases: herramientas propias compradas en el periodo (valor de adquisición).
+ * - maintenance: gastos de mantenimiento y reparación registrados en el periodo.
+ * - losses: herramientas dañadas, extraviadas o de baja, por la fecha en que dejaron de estar sanas.
+ */
+export const REPORT_METRIC = ["tools", "inventory", "purchases", "maintenance", "losses"] as const;
+export type ReportMetric = (typeof REPORT_METRIC)[number];
+
+export const reportDetailQuerySchema = z
+  .object({
+    metric: z.enum(REPORT_METRIC),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    /** Una barra de la serie: inicio del periodo (YYYY-MM-01) con su granularidad, igual que la gráfica. */
+    period: z.string().regex(/^\d{4}-\d{2}-01$/, "Periodo inválido").optional(),
+    granularity: z.enum(["month", "year"]).default("month"),
+    status: z.enum(TOOL_STATUS).optional(),
+    categoryId: id.optional(),
+    locationId: id.optional(),
+    q: z.string().trim().max(80).refine(noNul, "Caracteres no válidos").optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .refine((r) => !r.from || !r.to || r.from <= r.to, { message: "Rango inválido", path: ["to"] });
+
+// ---------- Plataforma (SuperAdmin) ----------
+
+const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(2)
+  .max(60)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Solo minúsculas, números y guiones");
+
+export const organizationCreateSchema = z.object({
+  name: shortText(120),
+  slug: slugSchema.optional(),
+  legalName: optionalText(160),
+  taxId: optionalText(40),
+  contactEmail: z.string().trim().toLowerCase().email().max(254).optional(),
+  contactPhone: optionalText(40),
+  address: optionalText(250),
+  /** Moneda ISO 4217 con la que se muestran los montos de la organización. */
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Código de moneda ISO de 3 letras").default("HNL"),
+  brandColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Color hexadecimal, p. ej. #F59E0B").optional(),
+  /** Primer administrador de la organización (opcional: se puede crear después). */
+  admin: z
+    .object({
+      name: shortText(120),
+      username: usernameSchema,
+      email: z.string().trim().toLowerCase().email().max(254).optional(),
+      password: passwordSchema,
+    })
+    .optional(),
+});
+
+export const organizationUpdateSchema = z
+  .object({
+    name: shortText(120),
+    slug: slugSchema,
+    legalName: z.string().trim().max(160).refine(noNul, "Caracteres no válidos").nullable(),
+    taxId: z.string().trim().max(40).refine(noNul, "Caracteres no válidos").nullable(),
+    contactEmail: z.string().trim().toLowerCase().email().max(254).nullable(),
+    contactPhone: z.string().trim().max(40).refine(noNul, "Caracteres no válidos").nullable(),
+    address: z.string().trim().max(250).refine(noNul, "Caracteres no válidos").nullable(),
+    currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Código de moneda ISO de 3 letras"),
+    brandColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Color hexadecimal, p. ej. #F59E0B").nullable(),
+    active: z.boolean(),
+  })
+  .partial()
+  .refine((o) => Object.keys(o).length > 0, "Nada que actualizar");
+
+/** Alta de un usuario desde la plataforma: en una organización o, sin ella, otro SuperAdmin. */
+export const platformUserCreateSchema = z
+  .object({
+    organizationId: id.optional(),
+    name: shortText(120),
+    username: usernameSchema,
+    email: z.string().trim().toLowerCase().email().max(254).optional(),
+    password: z.string().max(128),
+    role: z.enum(ROLE),
+    /** Contraseña de quien opera: obligatoria para crear otro SuperAdmin. */
+    confirmPassword: z.string().max(128).optional(),
+  })
+  .superRefine((u, ctx) => {
+    if ((u.role === "SUPERADMIN") === Boolean(u.organizationId)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["organizationId"],
+        message: u.role === "SUPERADMIN" ? "Un SuperAdmin no pertenece a ninguna organización" : "Elige la organización",
+      });
+    }
+    const r = credentialSchemaFor(u.role).safeParse(u.password);
+    if (!r.success) for (const issue of r.error.issues) ctx.addIssue({ ...issue, path: ["password"] });
+  });
+
+/** Cambios sobre una cuenta SuperAdmin (operación crítica: exige la contraseña de quien opera). */
+export const platformSuperadminUpdateSchema = z.object({
+  name: shortText(120).optional(),
+  active: z.boolean().optional(),
+  confirmPassword: z.string().min(1, "Confirma con tu contraseña").max(128),
+});
+
+/** Restablecer la contraseña de otro SuperAdmin también exige la de quien opera. */
+export const platformPasswordResetSchema = passwordResetSchema.extend({
+  confirmPassword: z.string().max(128).optional(),
+});
+
+export const platformUserListQuerySchema = z.object({
+  organizationId: id.optional(),
+  role: z.enum(ROLE).optional(),
+  q: z.string().trim().max(80).refine(noNul, "Caracteres no válidos").optional(),
+  status: z.enum(["active", "inactive", "locked"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export const impersonationStartSchema = z.object({
+  userId: id,
+  /** Motivo del soporte: queda en la auditoría. */
+  reason: z.string().trim().min(5, "Indica el motivo (mín. 5 caracteres)").max(300).refine(noNul, "Caracteres no válidos"),
+});
+
+export const AUDIT_RESULT = ["SUCCESS", "FAILURE", "DENIED"] as const;
+export type AuditResult = (typeof AUDIT_RESULT)[number];
+
+export const auditQuerySchema = z.object({
+  /** Solo en la auditoría global (SuperAdmin). */
+  organizationId: id.optional(),
+  /** Usuario real o efectivo (en una sesión de soporte, cualquiera de los dos). */
+  userId: id.optional(),
+  action: z.string().max(60).optional(),
+  /** Prefijo de la acción: tool, transfer, user, auth, impersonation… */
+  module: z.string().regex(/^[a-z_]{2,30}$/).optional(),
+  result: z.enum(AUDIT_RESULT).optional(),
+  entity: z.string().max(60).optional(),
+  entityId: z.string().max(64).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 // ---------- Tipos inferidos ----------
 
@@ -422,3 +594,14 @@ export type RentalReturnInput = z.infer<typeof rentalReturnSchema>;
 export type RentalListQuery = z.infer<typeof rentalListQuerySchema>;
 export type ReportRangeQuery = z.infer<typeof reportRangeQuerySchema>;
 export type ReportFilterQuery = z.infer<typeof reportFilterQuerySchema>;
+export type ReportDetailQuery = z.infer<typeof reportDetailQuerySchema>;
+export type PasswordChangeInput = z.infer<typeof passwordChangeSchema>;
+export type PasswordResetInput = z.infer<typeof passwordResetSchema>;
+export type PlatformPasswordResetInput = z.infer<typeof platformPasswordResetSchema>;
+export type OrganizationCreateInput = z.infer<typeof organizationCreateSchema>;
+export type OrganizationUpdateInput = z.infer<typeof organizationUpdateSchema>;
+export type PlatformUserCreateInput = z.infer<typeof platformUserCreateSchema>;
+export type PlatformSuperadminUpdateInput = z.infer<typeof platformSuperadminUpdateSchema>;
+export type PlatformUserListQuery = z.infer<typeof platformUserListQuerySchema>;
+export type ImpersonationStartInput = z.infer<typeof impersonationStartSchema>;
+export type AuditQuery = z.infer<typeof auditQuerySchema>;

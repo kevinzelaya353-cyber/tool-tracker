@@ -6,12 +6,14 @@ import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import type { Env } from "./config/env.js";
 import type { RouteProvider } from "./lib/routing.js";
+import { tenantScoped } from "./lib/tenant-prisma.js";
 import { authenticate } from "./middleware/auth.js";
-import { errorHandler, notFound } from "./middleware/error-handler.js";
+import { auditDenied, errorHandler, notFound } from "./middleware/error-handler.js";
 import { auditRouter } from "./modules/audit/audit.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { AuthService } from "./modules/auth/auth.service.js";
 import { prismaRefreshStore } from "./modules/auth/refresh-store.prisma.js";
+import { prismaSessionGuard } from "./modules/auth/session-guard.js";
 import { TokenService } from "./modules/auth/token.service.js";
 import { catalogRouter } from "./modules/catalog/catalog.routes.js";
 import { damageRouter } from "./modules/damage/damage.routes.js";
@@ -22,6 +24,11 @@ import { LifecycleService } from "./modules/lifecycle/lifecycle.service.js";
 import { mediaRouter } from "./modules/media/media.routes.js";
 import { MediaService } from "./modules/media/media.service.js";
 import type { ObjectStorage } from "./modules/media/storage.js";
+import { ImpersonationService } from "./modules/platform/impersonation.service.js";
+import { OrganizationsService } from "./modules/platform/organizations.service.js";
+import { OverviewService } from "./modules/platform/overview.service.js";
+import { PlatformUsersService } from "./modules/platform/platform-users.service.js";
+import { platformRouter } from "./modules/platform/platform.routes.js";
 import { ExportService } from "./modules/reports/export.service.js";
 import { exportRouter, reportsRouter } from "./modules/reports/reports.routes.js";
 import { ReportsService } from "./modules/reports/reports.service.js";
@@ -75,7 +82,7 @@ export function createApp(
   app.use(helmet());
   // "*" acepta cualquier origen: la API usa Bearer, no cookies, así que no hay credenciales que filtrar.
   const corsOrigin = env.CORS_ORIGINS.includes("*") ? "*" : env.CORS_ORIGINS;
-  app.use(cors({ origin: corsOrigin, credentials: false }));
+  app.use(cors({ origin: corsOrigin, credentials: false, allowedHeaders: ["Authorization", "Content-Type", "Accept", "X-Org-Id"] }));
   app.use(express.json({ limit: "100kb" })); // las fotos van por /media, no por JSON
   app.use(
     "/api",
@@ -115,28 +122,45 @@ export function createApp(
       },
       prismaRefreshStore(prisma),
     );
-    const requireAuth = authenticate(tokens);
+    const guard = prismaSessionGuard(prisma);
+    const requireAuth = authenticate(tokens, guard);
+    // Los módulos de una organización reciben el cliente con aislamiento: cada consulta se limita a
+    // la organización del contexto. `prisma` (sin filtro) queda para autenticación, plataforma y auditoría.
+    const db = tenantScoped(prisma);
+    const users = new UsersService(db, tokens);
+    const impersonation = new ImpersonationService(prisma, tokens);
 
-    app.use("/api/auth", authRouter(new AuthService(prisma, tokens), requireAuth, { rateLimit: env.NODE_ENV !== "test" }));
-    app.use("/api/users", requireAuth, usersRouter(new UsersService(prisma, tokens)));
+    app.use("/api/auth", authRouter(new AuthService(prisma, tokens), impersonation, requireAuth, { rateLimit: env.NODE_ENV !== "test" }));
+    app.use(
+      "/api/platform",
+      requireAuth,
+      platformRouter({
+        prisma,
+        organizations: new OrganizationsService(prisma, tokens, guard.invalidate),
+        users: new PlatformUsersService(prisma, tokens, users),
+        impersonation,
+        overview: new OverviewService(prisma),
+      }),
+    );
+    app.use("/api/users", requireAuth, usersRouter(users));
     app.use("/api/audit", requireAuth, auditRouter(prisma));
-    const damage = new DamageService(prisma);
-    app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(prisma), damage));
+    const damage = new DamageService(db);
+    app.use("/api/tools", requireAuth, toolsRouter(new ToolsService(db), damage));
     app.use("/api/damage-reports", requireAuth, damageRouter(damage));
-    app.use("/api/rentals", requireAuth, rentalsRouter(new RentalsService(prisma)));
+    app.use("/api/rentals", requireAuth, rentalsRouter(new RentalsService(db)));
     app.use("/api/transfers", requireAuth, transfersRouter(
-        new TransfersService(prisma, {
+        new TransfersService(db, {
           routing: deps.routing,
           storage: deps.storage,
           tiles: deps.tiles,
           urlTtlSec: env.MEDIA_URL_TTL_SEC ?? 600,
         }),
       ),);
-    app.use("/api/lifecycle-events", requireAuth, lifecycleRouter(new LifecycleService(prisma)));
-    app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(prisma, deps.storage, env.REPORTS_TZ ?? "UTC")));
-    app.use("/api/reports", requireAuth, reportsRouter(new ReportsService(prisma, env.REPORTS_TZ ?? "UTC")));
+    app.use("/api/lifecycle-events", requireAuth, lifecycleRouter(new LifecycleService(db)));
+    app.use("/api/reports/export", requireAuth, exportRouter(new ExportService(db, deps.storage, env.REPORTS_TZ ?? "UTC"), db));
+    app.use("/api/reports", requireAuth, reportsRouter(new ReportsService(db, env.REPORTS_TZ ?? "UTC")));
     if (deps.storage) {
-      const media = new MediaService(prisma, deps.storage, {
+      const media = new MediaService(db, deps.storage, {
         urlTtlSec: env.MEDIA_URL_TTL_SEC ?? 600,
         orphanTtlHours: env.MEDIA_ORPHAN_TTL_HOURS ?? 24,
       });
@@ -144,10 +168,11 @@ export function createApp(
     }
     // /api/categories, /api/locations, /api/vehicles. Va al final: cualquier otra ruta /api
     // sin token responde 401 (no revela qué rutas existen).
-    app.use("/api", requireAuth, catalogRouter(new CatalogService(prisma)));
+    app.use("/api", requireAuth, catalogRouter(new CatalogService(db)));
   }
 
   app.use(notFound);
+  if (deps) app.use(auditDenied(deps.prisma));
   app.use(errorHandler);
   return app;
 }

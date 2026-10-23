@@ -13,6 +13,21 @@ import type { ObjectStorage } from "../media/storage.js";
 import { photoDistances } from "../../lib/geo.js";
 
 const MONEY_FMT = '"L" #,##0.00';
+
+/** Símbolo de las monedas más usadas; el resto se muestra con su código ISO. */
+const CURRENCY_SYMBOL: Record<string, string> = { HNL: "L", USD: "$", GTQ: "Q", NIO: "C$", CRC: "₡", MXN: "$", EUR: "€" };
+
+/** Formato de número de Excel para la moneda de la organización. */
+export function moneyFormat(currency: string): string {
+  const symbol = CURRENCY_SYMBOL[currency] ?? currency;
+  return `"${symbol.replace(/"/g, "")}" #,##0.00`;
+}
+
+export interface WorkbookOptions {
+  /** Sin permiso de ver valores (finance:read), las columnas de dinero quedan vacías. */
+  includeValues: boolean;
+  currency: string;
+}
 const DATE_FMT = "dd/mm/yyyy";
 const DATETIME_FMT = "dd/mm/yyyy hh:mm";
 const PHOTO_PX = 76;
@@ -379,7 +394,8 @@ const TRANSFER_SELECT = {
  * - Una pestaña por ubicación (proyectos primero, luego bodegas) con sus herramientas actuales.
  */
 export class ExportService {
-  private images = new Map<string, Promise<number | null>>();
+  /** Imágenes ya registradas en CADA libro (dos exportaciones simultáneas no comparten caché). */
+  private images = new WeakMap<ExcelJS.Workbook, Map<string, Promise<number | null>>>();
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -388,8 +404,9 @@ export class ExportService {
     private readonly tz = "UTC",
   ) {}
 
-  async inventoryWorkbook(): Promise<Buffer> {
-    this.images.clear();
+  async inventoryWorkbook(opts: WorkbookOptions = { includeValues: true, currency: "HNL" }): Promise<Buffer> {
+    const fmt = moneyFormat(opts.currency);
+    const price = (v: unknown) => (opts.includeValues ? Number(v) : null);
     const [locations, tools, transfers] = await Promise.all([
       this.prisma.location.findMany({
         where: { active: true },
@@ -446,13 +463,14 @@ export class ExportService {
       { header: "Mapa", key: "map", width: 16 },
     ];
     styleHeader(summary);
+    summary.getColumn("value").numFmt = fmt;
     for (const loc of locations) {
       summary.addRow({
         name: loc.name,
         type: loc.type === "PROYECTO" ? "Proyecto" : "Bodega",
         address: loc.address ?? "",
         count: loc.tools.length,
-        value: loc.tools.reduce((s, t) => s + Number(t.purchasePrice), 0),
+        value: opts.includeValues ? loc.tools.reduce((s, t) => s + Number(t.purchasePrice), 0) : null,
         map: link(mapUrl(loc), "Ver en mapa"),
       });
     }
@@ -461,7 +479,7 @@ export class ExportService {
       const total = summary.addRow({
         name: "Total",
         count: { formula: `SUM(D2:D${last})` },
-        value: { formula: `SUM(E2:E${last})` },
+        ...(opts.includeValues && { value: { formula: `SUM(E2:E${last})` } }),
       });
       gridTable(summary, 1, last);
       for (let c = 1; c <= summary.columns.length; c++) {
@@ -564,6 +582,7 @@ export class ExportService {
       { header: "Foto", key: "photo", width: 13 },
     ];
     styleHeader(all);
+    all.getColumn("price").numFmt = fmt;
     const allPhotoCol = all.columns.length - 1;
     for (const t of tools) {
       const last = t.events.at(-1);
@@ -576,7 +595,7 @@ export class ExportService {
         status: TOOL_STATUS_LABEL[t.status],
         custodian: t.currentCustodian?.name ?? "",
         location: t.currentLocation?.name ?? "",
-        price: Number(t.purchasePrice),
+        price: price(t.purchasePrice),
         purchaseDate: t.purchaseDate,
         supplier: t.supplier ?? "",
         moves: t.events.filter((e) => e.type === "TRANSFER").length,
@@ -720,6 +739,7 @@ export class ExportService {
       const ws = wb.addWorksheet(sheetName(loc.name, used));
       ws.columns = COLUMNS;
       styleHeader(ws);
+      ws.getColumn("price").numFmt = fmt;
       if (loc.address) ws.headerFooter.oddHeader = `&L${loc.name}&R${loc.address}`;
 
       for (const t of loc.tools) {
@@ -731,7 +751,7 @@ export class ExportService {
           serial: t.serial ?? "",
           status: TOOL_STATUS_LABEL[t.status],
           custodian: t.currentCustodian?.name ?? "",
-          price: Number(t.purchasePrice),
+          price: price(t.purchasePrice),
           purchaseDate: t.purchaseDate,
           supplier: t.supplier ?? "",
         });
@@ -747,7 +767,9 @@ export class ExportService {
 
   /** Registra cada imagen una sola vez en el libro aunque aparezca en varias hojas. */
   private imageId(wb: ExcelJS.Workbook, key: string): Promise<number | null> {
-    let id = this.images.get(key);
+    let images = this.images.get(wb);
+    if (!images) this.images.set(wb, (images = new Map()));
+    let id = images.get(key);
     if (!id) {
       id = this.storage
         ? this.storage
@@ -755,7 +777,7 @@ export class ExportService {
             .then((buffer) => wb.addImage({ buffer: buffer as unknown as ExcelJS.Buffer, extension: "jpeg" }))
             .catch(() => null)
         : Promise.resolve(null);
-      this.images.set(key, id);
+      images.set(key, id);
     }
     return id;
   }

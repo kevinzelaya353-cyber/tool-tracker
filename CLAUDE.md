@@ -3,6 +3,10 @@
 Monorepo pnpm: `apps/api` (Express 5 + Prisma + PostgreSQL), `apps/mobile` (Expo), `packages/shared`
 (máquina de estados, permisos, esquemas Zod). Detalles en README.md y SECURITY.md.
 
+**Multi-tenant** (docs/MULTI_TENANT.md): los servicios de una organización reciben el cliente Prisma
+con aislamiento (`lib/tenant-prisma.ts`); toda alta lleva `organizationId: requireOrgId()` y todo SQL
+escrito a mano filtra por `requireOrgId()`. Nunca tomar la organización del cuerpo de la petición.
+
 ## Navegar el código con el grafo (ahorra tokens)
 
 Antes de abrir muchos archivos para entender algo, consulta el grafo de graphify:

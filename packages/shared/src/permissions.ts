@@ -1,9 +1,11 @@
 import type { Role } from "./enums.js";
 
-export const PERMISSION = [
+/** Permisos dentro de una organización. */
+export const TENANT_PERMISSION = [
   "tools:read",
   "tools:write",
   "tools:financial", // corregir precio/fecha de compra de una herramienta ya registrada
+  "finance:read", // ver valores monetarios: precios, costos y reportes en dinero
   "transfers:read",
   "transfers:create",
   "transfers:receive", // confirmar la recepción de un traslado en tránsito (propia o con el PIN de quien recibe)
@@ -14,12 +16,23 @@ export const PERMISSION = [
   "reports:read",
   "users:read",
   "users:manage",
-  "audit:read",
+  "audit:read", // auditoría de su propia organización
 ] as const;
+
+/** Permisos globales: solo el SuperAdmin. */
+export const PLATFORM_PERMISSION = [
+  "platform:organizations", // crear, editar, activar y desactivar organizaciones
+  "platform:users", // administrar usuarios de cualquier organización y a otros SuperAdmin
+  "platform:audit", // auditoría de todas las organizaciones
+  "platform:impersonate", // acceder como otro usuario (sesión de soporte)
+] as const;
+
+export const PERMISSION = [...TENANT_PERMISSION, ...PLATFORM_PERMISSION] as const;
 export type Permission = (typeof PERMISSION)[number];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  ADMIN: PERMISSION,
+  SUPERADMIN: PERMISSION,
+  ADMIN: TENANT_PERMISSION,
   BODEGUERO: [
     "tools:read",
     "tools:write",

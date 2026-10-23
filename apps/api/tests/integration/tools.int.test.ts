@@ -75,8 +75,8 @@ describe("herramientas (integración)", () => {
   });
 
   it("conteo por categoría con los mismos filtros que la lista", async () => {
-    const taladros = await prisma.toolCategory.create({ data: { name: "Taladros" } });
-    await prisma.toolCategory.create({ data: { name: "Vacía" } });
+    const taladros = await prisma.toolCategory.create({ data: { organizationId: base.org.id, name: "Taladros" } });
+    await prisma.toolCategory.create({ data: { organizationId: base.org.id, name: "Vacía" } });
     for (let i = 0; i < 3; i++) await createTool(base, { categoryId: taladros.id });
     await createTool(base);
 

@@ -5,6 +5,7 @@ import { audit } from "../../lib/audit.js";
 import { AppError } from "../../lib/errors.js";
 import { attachPhotos, lockTools } from "../../lib/tx-helpers.js";
 import type { AccessClaims } from "../auth/token.service.js";
+import { requireOrgId } from "../../lib/context.js";
 
 /** La app solo muestra las fotos que no se eliminaron desde ella. */
 const VISIBLE_PHOTO = { hiddenAt: null } satisfies Prisma.PhotoWhereInput;
@@ -56,6 +57,7 @@ export class DamageService {
         const event = check.marksDamaged
           ? await tx.lifecycleEvent.create({
               data: {
+                organizationId: requireOrgId(),
                 toolId: tool.id,
                 type: "DAMAGE",
                 fromStatus: tool.status,
@@ -73,6 +75,7 @@ export class DamageService {
 
         const report = await tx.damageReport.create({
           data: {
+            organizationId: requireOrgId(),
             id: input.id,
             toolId: tool.id,
             rentalId: rental?.id,

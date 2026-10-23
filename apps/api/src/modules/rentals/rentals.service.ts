@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { LocationType, RentalCreateInput, RentalListQuery, RentalReturnInput, ToolStatus } from "@tt/shared";
 import { checkRentalEvent } from "../../domain/rules.js";
 import { audit } from "../../lib/audit.js";
+import { requireOrgId } from "../../lib/context.js";
 import { AppError } from "../../lib/errors.js";
 import { pageArgs, toPage } from "../../lib/pagination.js";
 import { attachPhotos, lockTools } from "../../lib/tx-helpers.js";
@@ -47,7 +48,8 @@ export class RentalsService {
     try {
       const id = await this.prisma.$transaction(async (tx) => {
         const [loc] = await tx.$queryRaw<{ type: LocationType; active: boolean }[]>`
-          SELECT type::text AS "type", active FROM locations WHERE id = ${input.locationId}::uuid FOR SHARE
+          SELECT type::text AS "type", active FROM locations
+          WHERE id = ${input.locationId}::uuid AND organization_id = ${requireOrgId()}::uuid FOR SHARE
         `;
         if (!loc || !loc.active) throw AppError.badRequest("INVALID_LOCATION", "Ubicación inexistente o cerrada");
         const placed: ToolStatus = loc.type === "BODEGA" ? "BODEGA" : "EN_PROYECTO";
@@ -58,6 +60,7 @@ export class RentalsService {
 
         const event = await tx.lifecycleEvent.create({
           data: {
+            organizationId: requireOrgId(),
             toolId,
             type: "RENTAL_RECEIVE",
             fromStatus,
@@ -75,6 +78,7 @@ export class RentalsService {
 
         const rental = await tx.rental.create({
           data: {
+            organizationId: requireOrgId(),
             id: input.id,
             toolId,
             lessor: input.lessor,
@@ -125,6 +129,7 @@ export class RentalsService {
     if (!category) throw AppError.badRequest("INVALID_CATEGORY", "Categoría inexistente");
     const tool = await tx.tool.create({
       data: {
+        organizationId: requireOrgId(),
         code: data.code,
         categoryId: data.categoryId,
         brand: data.brand,
@@ -183,6 +188,7 @@ export class RentalsService {
 
       const event = await tx.lifecycleEvent.create({
         data: {
+          organizationId: requireOrgId(),
           toolId: tool!.id,
           type: "RENTAL_RETURN",
           fromStatus: tool!.status,

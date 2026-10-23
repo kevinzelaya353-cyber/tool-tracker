@@ -41,8 +41,11 @@ const SIDEBAR_MIN_WIDTH = 900;
 
 export default function TabsLayout() {
   const { colors } = useTheme();
-  const { can } = useAuth();
+  const { can, isSuperadmin, org } = useAuth();
   const { width } = useWindowDimensions();
+  // El SuperAdmin sin organización elegida ve la plataforma; con una elegida, la operación de esa empresa.
+  const platform = isSuperadmin && !org;
+  const show = (visible: boolean) => (visible ? undefined : null);
   const wide = width >= SIDEBAR_MIN_WIDTH;
   return (
     <Tabs
@@ -62,15 +65,26 @@ export default function TabsLayout() {
         headerRight: () => <ThemeToggle />,
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Inicio", tabBarIcon: icon("grid-outline") }} />
-      <Tabs.Screen name="tools" options={{ title: "Herramientas", tabBarIcon: icon("hammer-outline") }} />
-      <Tabs.Screen name="transfers" options={{ title: "Traslados", tabBarIcon: icon("swap-horizontal-outline") }} />
-      <Tabs.Screen name="locations" options={{ title: "Bodegas", headerTitle: "Bodegas y proyectos", tabBarIcon: icon("business-outline") }} />
+      <Tabs.Screen name="index" options={{ title: "Inicio", headerTitle: platform ? "Plataforma" : "Inicio", tabBarIcon: icon("grid-outline") }} />
+      <Tabs.Screen name="tools" options={{ title: "Herramientas", tabBarIcon: icon("hammer-outline"), href: show(!platform) }} />
+      <Tabs.Screen name="transfers" options={{ title: "Traslados", tabBarIcon: icon("swap-horizontal-outline"), href: show(!platform) }} />
+      <Tabs.Screen
+        name="locations"
+        options={{ title: "Bodegas", headerTitle: "Bodegas y proyectos", tabBarIcon: icon("business-outline"), href: show(!platform) }}
+      />
       {/* El chofer no ve costos: sin permiso de reportes la pestaña no aparece. */}
       <Tabs.Screen
         name="reports"
-        options={{ title: "Reportes", tabBarIcon: icon("bar-chart-outline"), href: can("reports:read") ? undefined : null }}
+        options={{ title: "Reportes", tabBarIcon: icon("bar-chart-outline"), href: show(!platform && can("reports:read")) }}
       />
+      {/* Plataforma (SuperAdmin): empresas, usuarios de todas y auditoría global. */}
+      <Tabs.Screen name="organizations" options={{ title: "Organizaciones", tabBarIcon: icon("globe-outline"), href: show(platform) }} />
+      <Tabs.Screen
+        name="platform-users"
+        options={{ title: "Usuarios", headerTitle: "Usuarios de la plataforma", tabBarIcon: icon("people-outline"), href: show(platform) }}
+      />
+      {/* La auditoría de la organización se abre desde Perfil; la global es una pestaña del SuperAdmin. */}
+      <Tabs.Screen name="audit" options={{ title: "Auditoría", tabBarIcon: icon("document-text-outline"), href: show(platform) }} />
       <Tabs.Screen name="profile" options={{ title: "Perfil", tabBarIcon: icon("person-circle-outline") }} />
     </Tabs>
   );

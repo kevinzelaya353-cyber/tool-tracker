@@ -16,7 +16,7 @@ describe("reportes financieros (integración)", () => {
   beforeAll(async () => {
     await resetDb();
     base = await seedBase();
-    pulidoraId = (await prisma.toolCategory.create({ data: { name: "Pulidora" } })).id;
+    pulidoraId = (await prisma.toolCategory.create({ data: { organizationId: base.org.id, name: "Pulidora" } })).id;
 
     const ev = (body: Record<string, unknown>, user = base.bodeguero) => as(user).post("/api/lifecycle-events", body);
 
@@ -40,7 +40,7 @@ describe("reportes financieros (integración)", () => {
   afterAll(() => prisma.$disconnect());
 
   it("resumen: inventario vigente, pérdidas, compras y mantenimiento", async () => {
-    const res = await as(base.lector).get("/api/reports/summary");
+    const res = await as(base.admin).get("/api/reports/summary");
     expect(res.status).toBe(200);
     expect(Number(res.body.purchaseTotal)).toBe(830);
     expect(Number(res.body.inventoryValue)).toBe(330); // T2 250 + P2 80
@@ -56,7 +56,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("gasto por tipo de herramienta", async () => {
-    const res = await as(base.lector).get("/api/reports/spend-by-category");
+    const res = await as(base.admin).get("/api/reports/spend-by-category");
     const byName = Object.fromEntries(res.body.map((r: { category: string }) => [r.category, r]));
     expect(byName.Taladro).toMatchObject({ purchasedCount: 2, lossCount: 1 });
     expect(Number(byName.Taladro.purchaseTotal)).toBe(350);
@@ -68,7 +68,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("gasto por tipo filtrado por periodo", async () => {
-    const res = await as(base.lector).get("/api/reports/spend-by-category?from=2025-02-01&to=2025-02-28T23:59:59Z");
+    const res = await as(base.admin).get("/api/reports/spend-by-category?from=2025-02-01&to=2025-02-28T23:59:59Z");
     const byName = Object.fromEntries(res.body.map((r: { category: string }) => [r.category, r]));
     expect(Number(byName.Pulidora.purchaseTotal)).toBe(400);
     expect(Number(byName.Taladro.purchaseTotal)).toBe(0);
@@ -76,7 +76,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("serie mensual con meses vacíos en cero", async () => {
-    const res = await as(base.lector).get("/api/reports/spend-over-time?from=2025-01-01&to=2025-06-30&granularity=month");
+    const res = await as(base.admin).get("/api/reports/spend-over-time?from=2025-01-01&to=2025-06-30&granularity=month");
     expect(res.status).toBe(200);
     const rows = res.body.map((r: { period: string; purchases: string; maintenance: string; losses: string }) => [
       r.period,
@@ -95,7 +95,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("serie anual", async () => {
-    const res = await as(base.lector).get("/api/reports/spend-over-time?from=2024-01-01&to=2025-12-31&granularity=year");
+    const res = await as(base.admin).get("/api/reports/spend-over-time?from=2024-01-01&to=2025-12-31&granularity=year");
     expect(res.body.map((r: { period: string; purchases: string }) => [r.period, Number(r.purchases)])).toEqual([
       ["2024-01-01", 0],
       ["2025-01-01", 830],
@@ -103,7 +103,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("control de pérdidas: totales por estado y detalle (lo reparado no cuenta)", async () => {
-    const res = await as(base.lector).get("/api/reports/losses");
+    const res = await as(base.admin).get("/api/reports/losses");
     expect(Number(res.body.totalValue)).toBe(500);
     expect(res.body.totals.EXTRAVIADA).toMatchObject({ count: 1 });
     expect(res.body.totals.DADA_DE_BAJA).toMatchObject({ count: 1 });
@@ -112,8 +112,27 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("valida el rango de la serie", async () => {
-    expect((await as(base.lector).get("/api/reports/spend-over-time?from=2000-01-01&to=2025-01-01")).status).toBe(400);
-    expect((await as(base.lector).get("/api/reports/spend-over-time")).status).toBe(200); // por defecto 12 meses
+    expect((await as(base.admin).get("/api/reports/spend-over-time?from=2000-01-01&to=2025-01-01")).status).toBe(400);
+    expect((await as(base.admin).get("/api/reports/spend-over-time")).status).toBe(200); // por defecto 12 meses
+  });
+
+  it("sin permiso de ver valores (solo Admin los ve): conteos sí, montos no", async () => {
+    const summary = await as(base.lector).get("/api/reports/summary");
+    expect(summary.status).toBe(200);
+    expect(summary.body.byStatus.BODEGA).toEqual({ count: 1, value: null });
+    expect(summary.body).toMatchObject({ inventoryValue: null, purchaseTotal: null, maintenanceTotal: null, lossValue: null });
+    expect(summary.body.damaged).toEqual({ count: 0, value: null });
+    for (const who of [base.lector, base.bodeguero, base.supervisor]) {
+      expect((await as(who).get("/api/reports/spend-by-category")).status).toBe(403);
+      expect((await as(who).get("/api/reports/spend-over-time")).status).toBe(403);
+      expect((await as(who).get("/api/reports/losses")).status).toBe(403);
+      expect((await as(who).get("/api/reports/details?metric=purchases")).status).toBe(403);
+    }
+    // El listado por estado sí, sin montos.
+    const detail = await as(base.lector).get("/api/reports/details?metric=tools&status=EN_PROYECTO");
+    expect(detail.status).toBe(200);
+    expect(detail.body).toMatchObject({ count: 1, totalValue: null });
+    expect(detail.body.rows[0].value).toBeNull();
   });
 
   it("requiere autenticación", async () => {
@@ -122,7 +141,7 @@ describe("reportes financieros (integración)", () => {
   });
 
   it("exporta a Excel: resumen y una pestaña por ubicación con sus herramientas", async () => {
-    const res = await as(base.lector)
+    const res = await as(base.admin)
       .get("/api/reports/export/inventory.xlsx")
       .buffer(true)
       .parse((r, cb) => {
@@ -144,5 +163,19 @@ describe("reportes financieros (integración)", () => {
     expect(obra.getRow(1).getCell(1).value).toBe("Código");
     expect(obra.rowCount).toBe(2);
     expect(obra.getRow(2).getCell(8).value).toBe(80);
+
+    // Sin permiso de ver valores, el mismo libro sale sin montos.
+    const restricted = await as(base.bodeguero)
+      .get("/api/reports/export/inventory.xlsx")
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(restricted.body as Buffer);
+    expect(wb2.getWorksheet(base.obraA.name)!.getRow(2).getCell(8).value).toBeNull();
+    expect(wb2.getWorksheet("Resumen")!.getRow(2).getCell(5).value).toBeNull();
   });
 });

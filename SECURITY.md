@@ -61,6 +61,33 @@ salvo que se indique otra.
 - Helmet (HSTS, nosniff, etc.) y sin `x-powered-by`. Los logs ocultan `Authorization`, contraseñas y tokens.
 - Los secretos JWT requieren al menos 32 caracteres. La configuración inválida detiene el arranque sin imprimir valores.
 
+## Fase multi-tenant (SaaS)
+
+Detalle completo en [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md). Controles agregados y verificados
+con pruebas de integración (`tenancy`, `platform`, `dashboard`):
+
+- **Aislamiento (BOLA/IDOR):** la organización sale del token; el cliente Prisma filtra toda consulta
+  y falla cerrado; las consultas SQL a mano usan `requireOrgId()`; triggers en la BD rechazan
+  relaciones entre organizaciones y cambios de organización. Un id ajeno responde 404.
+- **Escalamiento de privilegios:** los roles de organización no incluyen SUPERADMIN (esquema y BD);
+  las rutas de plataforma exigen SuperAdmin con sesión propia; `X-Org-Id` ajeno → 403 auditado.
+  Crear/desactivar SuperAdmins o restablecer su contraseña exige la contraseña de quien opera; no
+  puede quedar la plataforma sin SuperAdmin ni una organización sin administrador.
+- **Sesiones de soporte:** token de 30 min sin refresh, validado contra la BD en cada petición,
+  revocable, sin cadenas, sin acceso a cuentas/credenciales; auditoría con actor real y efectivo.
+- **Contraseñas:** argon2id; nunca se consultan ni se registran (redacción también de `pin`);
+  restablecer cierra las sesiones y por defecto obliga a cambiarla (la API solo permite cambiarla
+  hasta entonces). Bloqueo/desbloqueo y revocación de sesiones auditados.
+- **Información financiera:** precios y costos solo con `finance:read`, filtrados en la API (no solo
+  ocultos en la app), también en el Excel.
+- **Auditoría:** ahora de solo inserción en la BD; registra resultado y accesos denegados (403).
+
+Hallazgos corregidos durante esta fase:
+
+1. El precio de compra y los costos del historial llegaban a cualquier rol (incluso CHOFER y LECTOR) aunque la app no los mostrara.
+2. La caché de imágenes del Excel era compartida por todas las exportaciones y se vaciaba en cada una: con exportaciones simultáneas de dos organizaciones podía mezclar imágenes. Ahora es una caché por libro.
+3. En la app, al cambiar de organización o iniciar una sesión de soporte, pantallas del contexto anterior volvían a pedir datos con permisos que ya no correspondían (rechazadas por la API, pero quedaban como accesos denegados en la auditoría). Ahora cada contexto tiene su propia caché y sus propias pantallas.
+
 ## Riesgos aceptados y recomendaciones
 
 1. **Ventana de 15 min tras desactivar un usuario.** Su access token sigue siendo válido hasta expirar. Si no es aceptable: verificar `active` en `authenticate` con una caché de unos 60 s.
@@ -70,6 +97,7 @@ salvo que se indique otra.
 5. **Bloqueo de cuentas con PIN:** quien conozca un nombre de usuario puede bloquear esa cuenta con 5 intentos, y el mensaje de cuenta bloqueada revela que el usuario existe. Es la contrapartida aceptada de usar PIN de 4 dígitos: sin bloqueo, 10.000 combinaciones se adivinan en días. El administrador ve las cuentas bloqueadas primero en la pantalla de Usuarios.
 6. **Ubicación de las fotos:** la app guarda dónde se tomó cada foto de cámara (con permiso del usuario), no las de galería. Sirve como indicio, no como prueba: el GPS de un teléfono se puede falsear.
 7. **Dependencias:** CI ejecuta `pnpm audit --prod`. Hace falta commitear el lockfile tras el primer `pnpm install`.
+8. **Multi-tenant:** ver los riesgos pendientes en [docs/MULTI_TENANT.md](docs/MULTI_TENANT.md#12-riesgos-pendientes) (permisos fijos por rol, usuario único en la plataforma, caché de 30 s del estado de la organización, sesión de soporte abierta tras recargar la app).
 
 ## Cómo verificar
 
